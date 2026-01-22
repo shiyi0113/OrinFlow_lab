@@ -8,7 +8,7 @@ PROJECT_ROOT = BASE_DIR.parent
 
 model_path = PROJECT_ROOT / "models" / "onnx_raw" / "yolo26l.onnx"
 output_path = PROJECT_ROOT / "models" / "onnx_quant" / "yolo26l.onnx"
-calib_path = PROJECT_ROOT / "data" / "calib" / "coco128" / "yolo_calib.npy"
+calib_path = PROJECT_ROOT / "data" / "coco128" / "yolo_calib.npy"
 
 if __name__ == "__main__":
 

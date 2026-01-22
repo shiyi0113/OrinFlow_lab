@@ -9,8 +9,8 @@ PROJECT_ROOT = BASE_DIR.parent
 
 model_path = PROJECT_ROOT / "models" / "onnx_raw" / "yolo26l.onnx"
 output_path = PROJECT_ROOT / "models" / "onnx_quant" / "yolo26l.onnx"
-images_dir = PROJECT_ROOT / "data" / "calib" / "coco128" / "images" / "train2017"
-calib_path = PROJECT_ROOT / "data" / "calib" / "coco128" / "yolo_calib.npy"
+images_dir = PROJECT_ROOT / "data" / "coco128" / "images" / "train2017"
+calib_path = PROJECT_ROOT / "data" / "coco128" / "yolo_calib.npy"
 num_images = 128
 input_size = 640
 
