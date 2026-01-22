@@ -1,7 +1,8 @@
 *.pt
 *.pth
 *.onnx
-*Zone.Identifier
-data/coco128/
+*.zip
 
+data/coco128/
+data/kitti/
 !.gitkeep
