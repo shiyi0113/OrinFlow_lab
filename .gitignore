@@ -1,5 +1,7 @@
 *.pt
 *.pth
 *.onnx
+*Zone.Identifier
+data/calib/coco128/
 
 !.gitkeep
