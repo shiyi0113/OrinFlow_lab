@@ -2,7 +2,8 @@
 *.pth
 *.onnx
 *.zip
+*.npy
 
-data/coco128/
-data/kitti/
+data/images/coco128/
+data/images/kitti/
 !.gitkeep
