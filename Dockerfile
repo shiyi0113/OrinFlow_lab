@@ -25,7 +25,11 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 #---- 导出环境 ----
 RUN uv venv /opt/envs/venv_export
 RUN uv pip install --python /opt/envs/venv_export --no-cache-dir\
-    ultralytics
+    ultralytics \
+    pandas \
+    onnx==0.15.0\
+    onnxslim\
+    onnxrumtime-gpu==1.17.3
 
 #---- 量化环境 ----
 RUN uv venv --system-site-packages /opt/envs/venv_quant

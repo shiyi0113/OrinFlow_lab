@@ -17,71 +17,106 @@ DATA_ROOT = PROJECT_ROOT / "data" / "images"
 CALIB_ROOT = PROJECT_ROOT / "data" / "calib"
 
 def letterbox(
-    img, 
-    new_shape=(640, 640), 
-    color=(114, 114, 114), 
-    auto=True, 
-    scaleFill=False, 
-    scaleup=True,
-    stride=32,
-):
-    """将图片调整为指定大小，保持长宽比（YOLO 标准预处理）。
-
-    Args:
-        img: 输入图片 (HWC)
-        new_shape: 目标尺寸 (height, width)
-        color: 填充颜色
-        auto: 最小矩形填充
-        scaleFill: 拉伸填充
-        scaleup: 是否允许放大
-        stride: 步长（用于对齐）
+    img: np.ndarray,
+    new_shape: tuple[int, int] = (640, 640),
+    color: tuple[int, int, int] = (114, 114, 114),
+    auto: bool = False,
+    scale_fill: bool = False,
+    scaleup: bool = True,
+    stride: int = 32,
+    center: bool = True,
+) -> np.ndarray:
     """
-    shape = img.shape[:2]  # current shape [height, width]
+    LetterBox变换：保持宽高比缩放图像并填充到目标尺寸。
+    
+    Args:
+        img: 输入图像，shape (H, W, 3)
+        new_shape: 目标尺寸 (height, width)
+        color: 填充颜色，默认灰色 (114, 114, 114)
+        auto: 最小矩形模式，padding对齐到stride
+        scale_fill: 拉伸模式，不保持宽高比
+        scaleup: 是否允许放大，False则只缩小
+        stride: 模型stride
+        center: 是否居中，False则左上角对齐
+    
+    Returns:
+        处理后的图像，shape (new_shape[0], new_shape[1], 3)
+    """
+    shape = img.shape[:2]  # 当前尺寸 [height, width]
+    
     if isinstance(new_shape, int):
         new_shape = (new_shape, new_shape)
-
-    # Scale ratio (new / old)
-    r = min(new_shape[0] / shape[1], new_shape[1] / shape[0])
-    if not scaleup:  # only scale down, do not scale up (for better val mAP)
+    
+    # 计算缩放比例
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    if not scaleup:
         r = min(r, 1.0)
-
-    # Compute padding
-    ratio = r, r  # width, height ratios
-    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
-
-    if auto:  # minimum rectangle
-        dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-    elif scaleFill:  # stretch
+    
+    # 计算缩放后的尺寸和padding
+    new_unpad = (round(shape[1] * r), round(shape[0] * r))  # (width, height)
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]
+    
+    if auto:  # 最小矩形，padding对齐到stride
+        dw, dh = np.mod(dw, stride), np.mod(dh, stride)
+    elif scale_fill:  # 拉伸模式
         dw, dh = 0.0, 0.0
         new_unpad = (new_shape[1], new_shape[0])
-        ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
-
-    dw /= 2  # divide padding into 2 sides
-    dh /= 2
-
-    if shape[::-1] != new_unpad:  # resize
+    
+    if center:
+        dw /= 2
+        dh /= 2
+    
+    # 缩放
+    if shape[::-1] != new_unpad:
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
-    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
-    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-    return img, ratio, (dw, dh)
-
-def preprocess_yolo_image(image_path, input_size=(640, 640)):
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise ValueError(f"无法读取图像: {image_path}")
-    # BGR to RGB
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # Letterbox resize（保持长宽比）
-    img, _, _ = letterbox(img, new_shape=input_size,auto=False)
-    # 归一化到 [0, 1]
-    img = img.astype(np.float32) / 255.0
-    # HWC to CHW
-    img = img.transpose(2, 0, 1)
+    
+    # 填充
+    top, bottom = (round(dh - 0.1), round(dh + 0.1)) if center else (0, round(dh + 0.1) * 2)
+    left, right = (round(dw - 0.1), round(dw + 0.1)) if center else (0, round(dw + 0.1) * 2)
+    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+    
     return img
 
-def load_image(yaml_file,split='train',num_images=500):
+def preprocess_for_yolo(
+    image: np.ndarray,
+    input_size: tuple[int, int] = (640, 640),
+    stride: int = 32,
+    auto: bool = False,
+) -> np.ndarray:
+    """
+    YOLO模型推理/量化校准的预处理函数。
+    
+    Args:
+        image: 输入图像，BGR格式，shape (H, W, 3)，dtype uint8
+        input_size: 目标尺寸 (height, width)，默认 (640, 640)
+        stride: 模型stride，用于auto模式下的padding对齐，默认32
+        auto: 是否使用最小矩形模式（动态shape），量化校准建议False
+    
+    Returns:
+        预处理后的图像，shape (1, 3, H, W)，dtype float32，范围 [0, 1]
+    """
+    # 1. LetterBox: 保持宽高比缩放 + 填充
+    img = letterbox(image, input_size, stride=stride, auto=auto)
+    
+    # 2. BGR -> RGB
+    img = img[..., ::-1]
+    
+    # 3. HWC -> CHW，添加batch维度
+    img = img.transpose((2, 0, 1))[None]
+    
+    # 4. 连续内存
+    img = np.ascontiguousarray(img)
+    
+    # 5. 归一化到 [0, 1]
+    img = img.astype(np.float32) / 255.0
+    
+    return img
+
+def load_image(
+    yaml_file,
+    split='train',
+    num_images=500
+):
     """根据yaml文件获取图片路径。
 
     Args:
@@ -175,6 +210,7 @@ def load_image(yaml_file,split='train',num_images=500):
 
     return image_files
 
+
 def main():
     parser = argparse.ArgumentParser(description='量化数据校准集准备脚本')
     parser.add_argument('--yaml_file', type=str, default='coco128.yaml', help='数据集配置文件名')
@@ -199,7 +235,8 @@ def main():
     print(f"\n正在预处理图片...")
     calib_data = []
     for p in image_paths:
-        img_tensor = preprocess_yolo_image(p, input_size=(args.input_size, args.input_size))
+        img = cv2.imread(p)
+        img_tensor = preprocess_for_yolo(img, input_size=(args.input_size, args.input_size))
         if img_tensor is not None:
             calib_data.append(img_tensor)
         else:
@@ -208,7 +245,7 @@ def main():
     if len(calib_data) == 0:
         raise ValueError("没有成功处理任何图片")
 
-    calib_blob = np.stack(calib_data, axis=0)
+    calib_blob = np.concatenate(calib_data, axis=0)
     print(f"\n校准数据形状: {calib_blob.shape}")
     print(f"数据类型: {calib_blob.dtype}")
     print(f"数值范围: [{calib_blob.min():.3f}, {calib_blob.max():.3f}]")

@@ -4,6 +4,9 @@
 *.zip
 *.npy
 
+datasets/
+runs/
+data/test/
 data/images/coco128/
 data/images/kitti/
 !.gitkeep

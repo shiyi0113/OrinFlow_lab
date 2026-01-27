@@ -19,12 +19,6 @@ def main():
     print(f"正在加载模型: {model_path} ...")
     model = YOLO(model_path)
 
-    if os.path.exists(model_name):
-        shutil.move(model_name, model_path)
-        print(f"模型下载完成并移动至: {model_path}")
-    else:
-        print(f"模型已下载，但不在当前目录。请检查你的文件系统。")
-
     print("开始导出 ONNX ...")
     path = model.export(
         format='onnx',   
