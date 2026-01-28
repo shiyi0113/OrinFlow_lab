@@ -7,7 +7,7 @@ from orinflow.export import export_to_onnx
 
 def main():
     parser = argparse.ArgumentParser(description="Export PyTorch model to ONNX")
-    parser.add_argument("-m", "--model", type=str, default="yolo11n", help="Model name (without .pt)")
+    parser.add_argument("-m", "--model", type=str, default="yolo26n.pt", help="Model name")
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--opset", type=int, default=19, help="ONNX opset version")
     parser.add_argument("--half", action="store_true", help="Export as FP16")

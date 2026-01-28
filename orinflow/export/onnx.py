@@ -39,10 +39,10 @@ def export_to_onnx(
         device = 0 if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    model_path = SOURCE_MODELS_DIR / f"{model_name}.pt"
+    model_path = SOURCE_MODELS_DIR / model_name
     if output_dir is None:
         output_dir = ONNX_RAW_DIR
-    output_path = output_dir / f"{model_name}.onnx"
+    output_path = output_dir / Path(model_name).with_suffix(".onnx")
 
     print(f"Loading model: {model_path}")
     model = YOLO(model_path)

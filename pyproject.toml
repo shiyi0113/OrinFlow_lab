@@ -16,9 +16,7 @@ authors = [{ name = "shiyi", email = "shiyileshengxia@gmail.com" }]
 dependencies = [
     "ultralytics",
     "onnxslim>=0.1.71",
-    "onnxruntime-gpu",
-    # "pandas",
-    # "pyyaml",
+    "nvidia-modelopt[all]",
 ]
 
 [project.optional-dependencies]
