@@ -1,12 +1,27 @@
+# Models and data
 *.pt
 *.pth
 *.onnx
 *.zip
 *.npy
 
+# Datasets
 datasets/
 runs/
-data/test/
-data/images/coco128/
-data/images/kitti/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv*/
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+
+# Keep empty directories
 !.gitkeep

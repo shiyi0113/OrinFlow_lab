@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orinflow"
+version = "1.0.0"
+description = "YOLO model optimization pipeline for NVIDIA Orin edge deployment"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "shiyi", email = "shiyileshengxia@gmail.com" }]
+
+# Base: dockerfile
+# Pre-installed: torch, nvidia-modelopt, onnxruntime-gpu, onnx
+dependencies = [
+    "ultralytics",
+    "onnxslim>=0.1.71",
+    "onnxruntime-gpu",
+    # "pandas",
+    # "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pre-commit",
+]
+# Local development (non-Docker)
+# Install: pip install -e ".[local]" --extra-index-url https://pypi.nvidia.com
+local = [
+    "torch",
+    "torchvision",
+    "ultralytics",
+    "onnx>=1.15.0",
+    "onnxslim",
+    "nvidia-modelopt[all]",
+    "onnxruntime-gpu>=1.22",
+    "pandas",
+    "pyyaml",
+]
+
+[project.scripts]
+orinflow-export = "scripts.export:main"
+orinflow-calibrate = "scripts.calibrate:main"
+orinflow-quantize = "scripts.quantize:main"
+orinflow-evaluate = "scripts.evaluate:main"
+orinflow-pipeline = "scripts.pipeline:main"
+
+[tool.setuptools.packages.find]
+include = ["orinflow*", "scripts*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # function call in default argument
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.isort]
+known-first-party = ["orinflow", "scripts"]
