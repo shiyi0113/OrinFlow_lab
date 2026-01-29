@@ -8,7 +8,7 @@ from orinflow.optimize import quantize_onnx
 def main():
     parser = argparse.ArgumentParser(description="Quantize ONNX model (PTQ)")
     parser.add_argument("-m", "--model", type=str, default="yolo26n.onnx", help="Model name")
-    parser.add_argument("--calib", type=str, default="coco128.npy", choices=["coco128", "kitti"],help="Calibration data name")
+    parser.add_argument("--calib", type=str, default="coco128.npy",help="Calibration data name")
     parser.add_argument("--mode", type=str, default="int8", choices=["int8", "int4", "fp8"], help="Quantization mode")
     parser.add_argument("--method", type=str, default="entropy", choices=["entropy", "max", "awq_clip"], help="Calibration method")
     parser.add_argument("--exclude", type=str, nargs="*", default=None, help="Node patterns to exclude")
@@ -22,10 +22,6 @@ def main():
     #     #     exclude_nodes.append(node.name)
     #     # if "model.10" in node.name:             #  C2PSA
     #     #     exclude_nodes.append(node.name)
-    #     if '/model.10/' in node.name and '/attn/' in node.name:
-    #         exclude_nodes.append(node.name)
-    #     if node.op_type in ['Reshape', 'Shape', 'Gather', 'Concat', 'Unsqueeze']:
-    #         exclude_nodes.append(node.name)
     # print(f"排除节点数: {len(exclude_nodes)}")
     
     quantize_onnx(

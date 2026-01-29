@@ -17,6 +17,7 @@ dependencies = [
     "ultralytics",
     "onnxslim>=0.1.71",
     "nvidia-modelopt[all]",
+    "colored",
 ]
 
 [project.optional-dependencies]

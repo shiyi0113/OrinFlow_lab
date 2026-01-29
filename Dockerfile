@@ -12,7 +12,7 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
     python -m pip install --upgrade pip
 # 环境变量
 ENV PIP_CONSTRAINT=""
-ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/include:/usr/lib/x86_64-linux-gnu"
+ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/include:/usr/lib/x86_64-linux-gnu:/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib:/usr/local/lib/python3.12/dist-packages/nvidia/cublas/lib/:/usr/local/lib/python3.12/dist-packages/nvidia/cufft/lib/:/usr/local/lib/python3.12/dist-packages/nvidia/cuda_runtime/lib/:/usr/local/lib/python3.12/dist-packages/nvidia/cuda_nvrtc/lib/"
 
 # 安装基础系统工具
 RUN apt-get update && \
