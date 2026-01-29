@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 from urllib.request import urlretrieve
@@ -52,24 +53,40 @@ def load_dataset_images(
     if not dataset_root.exists():
         if not download_url:
             raise ValueError(f"Dataset {dataset_root} not found and no download URL provided")
-        _download_and_extract(download_url, dataset_dir_name)
+        download_str = download_url.strip()
+        if download_str.startswith("http"):
+            _download_and_extract(download_str, dataset_dir_name)
+        elif download_str.endswith(".sh"):
+            _run_shell_script(download_str, dataset_dir_name)
+        else:
+            _exec_download_script(download_url, cfg)
 
     if not split_dir:
         raise ValueError(f"Config file {yaml_path} missing '{split}' field")
 
     # Resolve image directory
-    if os.path.isabs(split_dir):
-        images_dir = Path(split_dir)
-    else:
-        images_dir = dataset_root / split_dir
-
-    # Find images
+    split_dirs = split_dir if isinstance(split_dir, list) else [split_dir]
+    
     image_files = []
-    for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
-        image_files.extend(list(images_dir.glob(ext)))
+    for sd in split_dirs:
+        if os.path.isabs(sd):
+            split_path = Path(sd)
+        else:
+            split_path = dataset_root / sd
+
+        if split_path.is_file() and split_path.suffix == ".txt":
+            # txt mode
+            with open(split_path) as f:
+                paths = [Path(line.strip()) for line in f if line.strip()]
+            paths = [p if p.is_absolute() else dataset_root / p for p in paths]
+            image_files.extend([p for p in paths if p.exists()])
+        else:
+            # dir mode
+            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+                image_files.extend(list(split_path.glob(ext)))
 
     if len(image_files) == 0:
-        raise ValueError(f"No images found in {images_dir}")
+        raise ValueError(f"No images found in {split_path}")
 
     # Random sample
     np.random.seed(42)
@@ -117,6 +134,24 @@ def _download_and_extract(url: str, dataset_name: str) -> None:
     if zip_path.exists():
         zip_path.unlink()
     print("Extraction complete.")
+
+
+def _run_shell_script(script_path: str, dataset_name: str) -> None:
+    """Run a shell script to download dataset."""
+    dataset_dir = DATA_DIR / dataset_name
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Running shell script: {script_path}")
+    subprocess.run(["bash", script_path], cwd=str(dataset_dir), check=True)
+    print("Shell script complete.")
+
+
+def _exec_download_script(script: str, yaml_cfg: dict) -> None:
+    """Execute a download script from YAML config."""
+    print("Running download script...")
+    cfg = yaml_cfg.copy()
+    cfg["path"] = str(DATA_DIR / cfg["path"])
+    exec(script, {"yaml": cfg})
+    print("Download script complete.")
 
 
 def prepare_calibration_data(

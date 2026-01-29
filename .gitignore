@@ -6,7 +6,7 @@
 *.npy
 
 # Datasets
-datasets/
+datasets/*/
 runs/
 
 # Python
