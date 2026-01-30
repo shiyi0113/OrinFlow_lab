@@ -9,7 +9,7 @@ def main():
     parser = argparse.ArgumentParser(description="Export PyTorch model to ONNX")
     parser.add_argument("-m", "--model", type=str, default="yolo26n.pt", help="Model name")
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
-    parser.add_argument("--opset", type=int, default=19, help="ONNX opset version")
+    parser.add_argument("--opset", type=int, default=13, help="ONNX opset version")
     parser.add_argument("--half", action="store_true", help="Export as FP16")
     parser.add_argument("--dynamic", action="store_true", help="Enable dynamic batch size")
     parser.add_argument("--device", type=str, default=None, help="Device: 'cpu' or GPU ID (default: auto-detect)")

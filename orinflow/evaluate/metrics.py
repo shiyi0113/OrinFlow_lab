@@ -61,7 +61,7 @@ def evaluate_model(
             val_kwargs.update(batch=16, half=True)
     print(f"Evaluating {model_format} model ({mode}): {model_path.name}")
 
-    model = YOLO(model_path)
+    model = YOLO(model_path, task=task)
     metrics = model.val(**val_kwargs)
 
     size_mb = os.path.getsize(model_path) / 1e6 if model_path.exists() else None

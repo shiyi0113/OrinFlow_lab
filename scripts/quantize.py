@@ -2,7 +2,6 @@
 """Quantize ONNX model using PTQ."""
 
 import argparse
-
 from orinflow.optimize import quantize_onnx
 
 def main():
@@ -13,16 +12,6 @@ def main():
     parser.add_argument("--method", type=str, default="entropy", choices=["entropy", "max", "awq_clip"], help="Calibration method")
     parser.add_argument("--exclude", type=str, nargs="*", default=None, help="Node patterns to exclude")
     args = parser.parse_args()
-
-    # 节点排除
-    # model = onnx.load(model_path)
-    # exclude_nodes = []
-    # for node in model.graph.node:
-    #     # if "model.23" in node.name:             #  Detect
-    #     #     exclude_nodes.append(node.name)
-    #     # if "model.10" in node.name:             #  C2PSA
-    #     #     exclude_nodes.append(node.name)
-    # print(f"排除节点数: {len(exclude_nodes)}")
     
     quantize_onnx(
         model_name=args.model,
