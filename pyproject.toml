@@ -44,7 +44,6 @@ orinflow-export = "scripts.export:main"
 orinflow-calibrate = "scripts.calibrate:main"
 orinflow-quantize = "scripts.quantize:main"
 orinflow-evaluate = "scripts.evaluate:main"
-orinflow-pipeline = "scripts.pipeline:main"
 
 [tool.setuptools.packages.find]
 include = ["orinflow*", "scripts*"]

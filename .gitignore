@@ -25,3 +25,7 @@ uv.lock
 
 # Keep empty directories
 !.gitkeep
+
+# test scripts
+scripts/make_subset.py
+scripts/test.py
