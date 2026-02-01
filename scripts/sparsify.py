@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--batch", type=int, default=16, help="Training batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="SAT learning rate")
     parser.add_argument("--calib-batch", type=int, default=4, help="Calibration batch size for SparseGPT")
+    parser.add_argument("--calib-images", type=int, default=512, help="Max calibration images for SparseGPT (default: 512)")
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--device", type=int, default=0, help="CUDA device ID")
     parser.add_argument("--output", type=str, default=None, help="Output model path")
@@ -33,6 +34,7 @@ def main():
         batch=args.batch,
         lr=args.lr,
         calib_batch=args.calib_batch,
+        calib_images=args.calib_images,
         imgsz=args.imgsz,
         device=args.device,
         output_path=args.output,

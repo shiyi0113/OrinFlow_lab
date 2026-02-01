@@ -11,12 +11,10 @@ requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "shiyi", email = "shiyileshengxia@gmail.com" }]
 
-# Base: dockerfile
-# Pre-installed: torch, nvidia-modelopt, onnxruntime-gpu, onnx
+# Dockerfile 预装: torch, torchvision, nvidia-modelopt, onnxruntime-gpu, onnx
 dependencies = [
     "ultralytics",
     "onnxslim>=0.1.71",
-    "nvidia-modelopt[all]",
     "colored",
 ]
 
@@ -26,13 +24,11 @@ dev = [
     "pre-commit",
 ]
 # Local development (non-Docker)
-# Install: pip install -e ".[local]" --extra-index-url https://pypi.nvidia.com
+# Install: pip install -e ".[local]" --extra-index-url https://pypi.nvidia.com --extra-index-url https://download.pytorch.org/whl/cu129
 local = [
     "torch",
     "torchvision",
-    "ultralytics",
     "onnx>=1.15.0",
-    "onnxslim",
     "nvidia-modelopt[all]",
     "onnxruntime-gpu>=1.22",
     "pandas",

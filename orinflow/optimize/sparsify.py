@@ -106,6 +106,7 @@ def sparsify_and_finetune(
     batch: int = 16,
     lr: float = 1e-4,
     calib_batch: int = 4,
+    calib_images: int = 512,
     imgsz: int = 640,
     device: int = 0,
     output_path: Path | None = None,
@@ -127,6 +128,7 @@ def sparsify_and_finetune(
         batch: Training batch size
         lr: Learning rate for SAT
         calib_batch: Batch size for SparseGPT calibration
+        calib_images: Max number of images for SparseGPT calibration (default 512)
         imgsz: Input image size
         device: CUDA device ID
         output_path: Output .pt path. Defaults to models/source/{stem}_sparse.pt
@@ -168,8 +170,13 @@ def sparsify_and_finetune(
     def collect_func(batch):
         return batch["img"].to(cuda_device).float() / 255.0
 
-    print(f"Applying {mode} sparsification...")
-    sparsify_config = {"data_loader": calib_loader, "collect_func": collect_func}
+    max_iters = max(1, calib_images // calib_batch)
+    print(f"Applying {mode} sparsification (calibration: {max_iters} batches × {calib_batch} = ~{max_iters * calib_batch} images)...")
+    sparsify_config = {
+        "data_loader": calib_loader,
+        "collect_func": collect_func,
+        "max_iter_data_loader": max_iters,
+    }
     mts.sparsify(model_yolo.model, mode=mode, config=sparsify_config)
 
     print("Post-sparsification:")
