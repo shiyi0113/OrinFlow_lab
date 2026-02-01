@@ -14,6 +14,7 @@ Typical workflow:
 """
 
 import copy
+import fnmatch
 from pathlib import Path
 
 import torch
@@ -54,6 +55,47 @@ def check_sparsity(model: torch.nn.Module) -> float:
     ratio = zeros / total if total > 0 else 0.0
     print(f"Global Sparsity: {100 * ratio:.2f}%")
     return ratio
+
+
+def _build_sparsity_rules(model: torch.nn.Module, exclude: list[str]) -> dict:
+    """Build ModelOpt sparsity rules from exclude glob patterns.
+
+    Scans the model for Conv2d/Linear layers and matches them against the
+    provided patterns.  Patterns without wildcards are auto-wrapped as
+    ``*pattern*`` for convenience.
+
+    Args:
+        model: The PyTorch model.
+        exclude: Glob patterns (fnmatch-style) for layers to exclude.
+
+    Returns:
+        Rules dict compatible with ModelOpt's ``(mode, rules)`` tuple.
+    """
+    rules: dict[str, dict[str, dict | None]] = {
+        "nn.Conv2d": {"*": {}},
+        "nn.Linear": {"*": {}},
+    }
+
+    # Collect Conv2d/Linear layer names for matching preview
+    target_layers = {
+        name: module
+        for name, module in model.named_modules()
+        if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear))
+    }
+
+    for pattern in exclude:
+        glob_pat = pattern if ("*" in pattern or "?" in pattern) else f"*{pattern}*"
+        matched = [n for n in target_layers if fnmatch.fnmatch(n, glob_pat)]
+        if matched:
+            preview = ", ".join(matched[:5])
+            suffix = f" ... ({len(matched)} total)" if len(matched) > 5 else ""
+            print(f"  Exclude '{pattern}' -> {preview}{suffix}")
+        else:
+            print(f"  Warning: '{pattern}' did not match any Conv2d/Linear layers.")
+        rules["nn.Conv2d"][glob_pat] = None
+        rules["nn.Linear"][glob_pat] = None
+
+    return rules
 
 
 def _make_sparse_trainer_cls():
@@ -107,6 +149,7 @@ def sparsify_and_finetune(
     lr: float = 1e-4,
     calib_batch: int = 4,
     calib_images: int = 512,
+    exclude: list[str] | None = None,
     imgsz: int = 640,
     device: int = 0,
     output_path: Path | None = None,
@@ -129,6 +172,9 @@ def sparsify_and_finetune(
         lr: Learning rate for SAT
         calib_batch: Batch size for SparseGPT calibration
         calib_images: Max number of images for SparseGPT calibration (default 512)
+        exclude: Glob patterns for layers to exclude from sparsification (fnmatch-style).
+            Patterns without wildcards are auto-wrapped as ``*pattern*``.
+            E.g. ``["model.0.", "model.22."]`` excludes stem and detect head.
         imgsz: Input image size
         device: CUDA device ID
         output_path: Output .pt path. Defaults to models/source/{stem}_sparse.pt
@@ -177,7 +223,16 @@ def sparsify_and_finetune(
         "collect_func": collect_func,
         "max_iter_data_loader": max_iters,
     }
-    mts.sparsify(model_yolo.model, mode=mode, config=sparsify_config)
+
+    # Build mode spec: plain string or (mode, rules) tuple with exclusions
+    if exclude:
+        print("Resolving exclusion patterns:")
+        rules = _build_sparsity_rules(model_yolo.model, exclude)
+        sparsify_mode = (mode, rules)
+    else:
+        sparsify_mode = mode
+
+    mts.sparsify(model_yolo.model, mode=sparsify_mode, config=sparsify_config)
 
     print("Post-sparsification:")
     check_sparsity(model_yolo.model)
