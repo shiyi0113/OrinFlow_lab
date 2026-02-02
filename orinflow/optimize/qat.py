@@ -5,16 +5,22 @@ into the model, calibrates activation ranges, then fine-tunes with QAT so the
 model learns to compensate for quantization error via the Straight-Through
 Estimator (STE).
 
-TensorQuantizer is a regular nn.Module -- it is pickle-safe and supports
-deepcopy, so unlike sparsity's DynamicModule we do NOT need a save_model()
-override.
+While TensorQuantizer itself is a regular nn.Module, ``mtq.quantize()`` wraps
+layers in DynamicModule subclasses (QuantConv2d, QuantLinear) that CANNOT be
+pickled.  We handle this the same way as sparsity: ``save_model()`` deepcopies
+the model and calls ``DynamicModule.export()`` to restore pickle-safe classes.
+The trade-off is that exported .pt checkpoints lose TensorQuantizer nodes
+(FakeQuantize info).
 
-FakeQuantize nodes automatically export as Q/DQ nodes during
-torch.onnx.export(), so the user runs ``orinflow-export`` separately after QAT.
+To preserve QDQ information for TensorRT INT8 deployment, the pipeline exports
+ONNX directly from the in-memory model (before DynamicModule stripping).
+FakeQuantize nodes become Q/DQ (QuantizeLinear/DequantizeLinear) ONNX ops via
+TensorQuantizer's symbolic functions.
 
 Typical workflow:
     orinflow-qat -m yolo11n.pt --data coco128.yaml --mode int8 --epochs 10
-    orinflow-export -m yolo11n_qat_int8.pt --imgsz 640
+    # Produces both .pt (checkpoint) and .onnx (with QDQ nodes)
+    # Use the .onnx with trtexec --int8 for deployment
 """
 
 import copy
@@ -25,7 +31,7 @@ import torch
 
 import modelopt.torch.quantization as mtq
 
-from orinflow.config import DATA_DIR, SOURCE_MODELS_DIR
+from orinflow.config import DATA_DIR, DEFAULT_OPSET, ONNX_RAW_DIR, SOURCE_MODELS_DIR
 
 # Mapping from user-facing mode strings to ModelOpt quantization preset configs.
 # INT8 is the recommended starting point for CNN/YOLO models.
@@ -76,6 +82,59 @@ def _apply_quantizer_exclusions(model: torch.nn.Module, exclude: list[str]) -> N
         else:
             print(f"  Warning: '{pattern}' did not match any modules.")
         mtq.disable_quantizer(model, glob_pat)
+
+
+def _export_qat_onnx(
+    model: torch.nn.Module,
+    output_path: Path,
+    imgsz: int,
+    device: str,
+    opset: int = DEFAULT_OPSET,
+) -> Path:
+    """Export QAT model to ONNX with QDQ nodes preserved.
+
+    Uses ``torch.onnx.export()`` directly instead of ``YOLO.export()`` because
+    the latter calls ``model.fuse()`` which destroys QuantConv2d/TensorQuantizer
+    wrappers.
+
+    TensorQuantizer's ``symbolic()`` method automatically converts FakeQuantize
+    ops to QuantizeLinear/DequantizeLinear (Q/DQ) ONNX nodes during tracing.
+
+    Args:
+        model: The QAT-trained model with DynamicModule wrappers still intact.
+        output_path: Path for the output .onnx file.
+        imgsz: Input image size (square).
+        device: CUDA device string (e.g. "cuda:0").
+        opset: ONNX opset version (>= 13 for QDQ ops).
+
+    Returns:
+        Path to the exported ONNX file.
+    """
+    export_model = copy.deepcopy(model)
+    export_model.eval()
+    export_model.float()
+
+    # Set export mode on Detect head so it outputs raw predictions (no NMS).
+    # This mirrors what ultralytics' Exporter does before torch.onnx.export().
+    for m in export_model.modules():
+        if hasattr(m, "export"):
+            m.export = True
+
+    dummy = torch.randn(1, 3, imgsz, imgsz, device=device)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        export_model,
+        dummy,
+        str(output_path),
+        opset_version=opset,
+        do_constant_folding=True,
+        input_names=["images"],
+        output_names=["output0"],
+        dynamo=False,
+    )
+
+    return output_path
 
 
 def _export_dynamic_modules(model: torch.nn.Module) -> None:
@@ -163,6 +222,7 @@ def quantize_aware_finetune(
     imgsz: int = 640,
     device: int = 0,
     output_path: Path | None = None,
+    export_onnx: bool = True,
 ) -> Path:
     """Apply quantization and fine-tune with QAT.
 
@@ -171,11 +231,14 @@ def quantize_aware_finetune(
         2. Insert FakeQuantize nodes via mtq.quantize() + calibrate
         3. Optionally disable quantizers on excluded layers
         4. QAT fine-tuning (STE-based gradient flow through FakeQuantize)
-        5. Save final quantized model
+        5. Export ONNX with QDQ nodes (from in-memory model, before stripping)
+        6. Save .pt checkpoint (DynamicModules stripped for pickle safety)
 
-    The saved .pt model contains TensorQuantizer nodes. When exported to ONNX
-    via ``orinflow-export``, FakeQuantize nodes automatically become Q/DQ
-    (QuantizeLinear/DequantizeLinear) nodes.
+    The .onnx output contains Q/DQ (QuantizeLinear/DequantizeLinear) nodes and
+    can be used directly with ``trtexec --int8`` for TensorRT INT8 deployment.
+
+    The .pt checkpoint loses TensorQuantizer info after DynamicModule stripping,
+    but the weights are QAT-trained and will respond well to subsequent PTQ.
 
     Args:
         model_name: Source model filename (e.g. "yolo11n.pt").
@@ -193,9 +256,12 @@ def quantize_aware_finetune(
         device: CUDA device ID.
         output_path: Output .pt path. Defaults to
             models/source/{stem}_qat_{mode}.pt.
+        export_onnx: If True, export ONNX with QDQ nodes from the in-memory
+            model before stripping DynamicModules. Output goes to
+            models/onnx/raw/{stem}.onnx. Default True.
 
     Returns:
-        Path to saved QAT model.
+        Path to saved QAT .pt model.
     """
     from ultralytics import YOLO
 
@@ -270,12 +336,27 @@ def quantize_aware_finetune(
     qat_trainer.model = model_yolo.model
     qat_trainer.train()
 
-    # ── 5. Save ───────────────────────────────────────────────────
+    # ── 5. Export ONNX (with QDQ nodes) ─────────────────────────
+    # Must happen BEFORE DynamicModule stripping, since TensorQuantizer's
+    # symbolic() method converts FakeQuantize -> Q/DQ during torch.onnx.export().
+    # We use torch.onnx.export() directly (not YOLO.export()) because the latter
+    # calls model.fuse() which destroys QuantConv2d wrappers.
+    if export_onnx:
+        onnx_path = ONNX_RAW_DIR / f"{output_path.stem}.onnx"
+        print(f"Exporting ONNX with QDQ nodes: {onnx_path}")
+        _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
+        print(f"Saved QAT ONNX to: {onnx_path}")
+
+    # ── 6. Save .pt checkpoint ────────────────────────────────────
+    # The in-memory model still has DynamicModule wrappers (QuantConv2d etc.)
+    # which can't be pickled. Export a copy to regular modules before saving.
+    # Note: this strips TensorQuantizer nodes — the .pt is a plain FP32 checkpoint
+    # with QAT-trained weights, suitable for further PTQ or as a warm-start.
     final_model = copy.deepcopy(qat_trainer.model)
     _export_dynamic_modules(final_model)
     model_yolo.model = final_model
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model_yolo.save(str(output_path))
-    print(f"Saved QAT model to: {output_path}")
+    print(f"Saved QAT checkpoint to: {output_path}")
 
     return output_path

@@ -28,6 +28,10 @@ def main():
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--device", type=int, default=0, help="CUDA device ID")
     parser.add_argument("--output", type=str, default=None, help="Output model path")
+    parser.add_argument(
+        "--no-onnx", action="store_true",
+        help="Skip ONNX export (by default exports .onnx with QDQ nodes to models/onnx/raw/)",
+    )
     args = parser.parse_args()
 
     quantize_aware_finetune(
@@ -43,6 +47,7 @@ def main():
         imgsz=args.imgsz,
         device=args.device,
         output_path=args.output,
+        export_onnx=not args.no_onnx,
     )
 
 
