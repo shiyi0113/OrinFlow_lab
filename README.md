@@ -1,11 +1,11 @@
 # OrinFlow Lab
 
-OrinFlow 的 PC 端子项目。在开发机上将 YOLO v26 模型优化为高性能、低精度损失的 ONNX 模型，用于后续传输到 Jetson Orin Nano Super 通过 TensorRT 部署推理。
+OrinFlow 的 PC 端子项目。在开发机上将 YOLO26 系列模型优化为高性能、低精度损失的 ONNX 模型，用于后续传输到 Jetson Orin Nano Super 通过 TensorRT 部署推理。
 
 ## 流水线
 
 ```
-yolo26n.pt ──▶ Export ──▶ Calibrate ──▶ Quantize / Sparsify ──▶ Evaluate ──▶ 部署就绪的 .onnx
+yolo26x.pt ──▶ Export ──▶ Calibrate ──▶ Quantize / Sparsify ──▶ Evaluate ──▶ 部署就绪的.onnx
 ```
 
 | 阶段 | 命令 | 说明 |
@@ -50,16 +50,6 @@ docker run --gpus all -it -v $(pwd):/workspace orinflow
 pip install -e ".[dev]"
 ```
 
-### 本地开发
-
-```bash
-pip install -e ".[local]" \
-    --extra-index-url https://pypi.nvidia.com \
-    --extra-index-url https://download.pytorch.org/whl/cu129
-```
-
-**环境要求：** Python 3.10+，CUDA 12.x，NVIDIA GPU
-
 ## 使用示例
 
 ```bash
@@ -82,17 +72,11 @@ orinflow-sparsify -m yolo26n.pt --data coco128.yaml --epochs 10
 orinflow-evaluate -m yolo26n --yaml coco128.yaml --compare
 ```
 
-排除特定算子不参与量化：
-
-```bash
-orinflow-quantize -m yolo26n.onnx --calib coco128.npy --mode int8 --exclude ".*Softmax.*" ".*Sigmoid.*"
-```
-
 ## 技术栈
 
 - [Ultralytics](https://github.com/ultralytics/ultralytics) — YOLO 模型加载、训练、导出
-- [NVIDIA ModelOpt](https://github.com/NVIDIA/TensorRT-Model-Optimizer) — PTQ / QAT / 2:4 稀疏
-- [ONNX Runtime](https://onnxruntime.ai/) — ONNX 推理基准测试
+- [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) — PTQ / QAT / 2:4 稀疏
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime) — ONNX 推理基准测试
 
 ## 许可证
 
