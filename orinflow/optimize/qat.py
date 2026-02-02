@@ -78,6 +78,22 @@ def _apply_quantizer_exclusions(model: torch.nn.Module, exclude: list[str]) -> N
         mtq.disable_quantizer(model, glob_pat)
 
 
+def _export_dynamic_modules(model: torch.nn.Module) -> None:
+    """Recursively export all DynamicModules back to regular modules in-place.
+
+    DynamicModule.export() restores __class__ to the original (e.g. QuantConv2d -> Conv2d),
+    making the module pickle-safe. This is the general mechanism underlying mts.export()
+    for sparsity; for quantization, mtq has no public export() yet, so we call
+    DynamicModule.export() directly.
+    """
+    from modelopt.torch.opt.dynamic import DynamicModule
+
+    for _name, child in list(model.named_children()):
+        if isinstance(child, DynamicModule):
+            child.export()
+        _export_dynamic_modules(child)
+
+
 def _make_qat_trainer_cls():
     """Create a DetectionTrainer subclass for QAT fine-tuning.
 
@@ -86,15 +102,14 @@ def _make_qat_trainer_cls():
     from ultralytics.models.yolo.detect import DetectionTrainer
 
     class QATDetectionTrainer(DetectionTrainer):
-        """DetectionTrainer that handles ModelOpt TensorQuantizer parameters.
+        """DetectionTrainer that handles ModelOpt QuantModule (DynamicModule).
 
-        TensorQuantizer modules may set some parameters to requires_grad=False.
-        The base _setup_train() would force them back to True with a noisy
-        "setting requires_grad=True for frozen layer" warning. Since QAT needs
-        gradients on all float params (quantization error propagated via STE),
-        we pre-enable them to suppress the warnings.
+        QuantConv2d/QuantLinear are dynamically generated DynamicModule classes
+        that cannot be pickled (same issue as sparsity's SparseConv2d).
+        We override save_model() to deepcopy + export DynamicModules back to
+        regular modules before torch.save.
 
-        No save_model() override needed: TensorQuantizer is pickle-safe.
+        Also overrides _setup_train() to suppress requires_grad warnings.
         """
 
         def _setup_train(self):
@@ -103,6 +118,34 @@ def _make_qat_trainer_cls():
                 if not v.requires_grad and v.dtype.is_floating_point:
                     v.requires_grad = True
             super()._setup_train()
+
+        def save_model(self):
+            """Export DynamicModule copies to pickle-safe modules before saving."""
+            orig_ema = self.ema.ema
+            try:
+                ema_copy = copy.deepcopy(orig_ema)
+                _export_dynamic_modules(ema_copy)
+                self.ema.ema = ema_copy
+                super().save_model()
+            finally:
+                self.ema.ema = orig_ema
+
+        def final_eval(self):
+            """Run final evaluation, catching CUDA kernel errors from NMS warmup.
+
+            final_eval() loads the saved checkpoint via AutoBackend, whose NMS
+            warmup may fail on GPUs without matching torchvision CUDA kernels
+            (e.g. Blackwell/RTX 50xx). Per-epoch validation is unaffected since
+            it uses the in-memory model directly.
+            """
+            try:
+                return super().final_eval()
+            except Exception as e:
+                if "no kernel image" in str(e):
+                    print(f"Warning: Final validation skipped ({type(e).__name__}: {e})")
+                    print("Training completed. Run orinflow-evaluate separately for metrics.")
+                else:
+                    raise
 
     return QATDetectionTrainer
 
@@ -222,15 +265,17 @@ def quantize_aware_finetune(
         lr0=lr,
         device=device,
         workers=0,
+        amp=False,
     ))
     qat_trainer.model = model_yolo.model
     qat_trainer.train()
 
     # ── 5. Save ───────────────────────────────────────────────────
-    model_yolo.model = qat_trainer.model
+    final_model = copy.deepcopy(qat_trainer.model)
+    _export_dynamic_modules(final_model)
+    model_yolo.model = final_model
     output_path.parent.mkdir(parents=True, exist_ok=True)
     model_yolo.save(str(output_path))
     print(f"Saved QAT model to: {output_path}")
-    print(f"To export to ONNX with QDQ nodes: orinflow-export -m {output_path.name}")
 
     return output_path

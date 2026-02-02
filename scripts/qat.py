@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Quantization-Aware Training for YOLO model (FakeQuantize + QAT fine-tuning)"
     )
-    parser.add_argument("-m", "--model", type=str, required=True, help="Source model filename (e.g. yolo11n.pt)")
+    parser.add_argument("-m", "--model", type=str, required=True, help="Source model filename (e.g. yolo26n.pt)")
     parser.add_argument("--data", type=str, default="coco128.yaml", help="Dataset YAML filename")
     parser.add_argument(
         "--mode", type=str, default="int8", choices=["int8", "fp8", "int4_awq", "w4a8"],
