@@ -138,7 +138,12 @@ def _batched_metrics(flush_interval: int = _DEFAULT_FLUSH_INTERVAL):
         DetMetrics.process = original_process
 
 
-def evaluate_model(model_path: str | Path, data_yaml: str | Path) -> EvalResult:
+def evaluate_model(
+    model_path: str | Path,
+    data_yaml: str | Path,
+    device: str | None = None,
+    fallback_to_cpu: bool = True,
+) -> EvalResult:
     """
     Evaluate model accuracy on validation dataset using ultralytics val().
 
@@ -150,6 +155,8 @@ def evaluate_model(model_path: str | Path, data_yaml: str | Path) -> EvalResult:
     Args:
         model_path: Path to model file (.pt or .onnx)
         data_yaml: Path to dataset YAML config
+        device: Device to use for inference ("cpu", "0", "cuda:0", etc.). Default: GPU ("0").
+        fallback_to_cpu: If True and GPU fails, automatically retry with CPU.
 
     Returns:
         EvalResult with mAP metrics
@@ -166,6 +173,9 @@ def evaluate_model(model_path: str | Path, data_yaml: str | Path) -> EvalResult:
     is_pt = model_path.suffix == ".pt"
     size_mb = os.path.getsize(model_path) / 1e6 if model_path.exists() else None
 
+    if device is None:
+        device = "0"
+
     val_kwargs = dict(
         data=str(data_yaml),
         imgsz=_DEFAULT_IMGSZ,
@@ -175,18 +185,29 @@ def evaluate_model(model_path: str | Path, data_yaml: str | Path) -> EvalResult:
         plots=False,
         save_json=False,
         verbose=True,
+        device=device,
     )
     if is_pt:
         val_kwargs.update(batch=16, half=True)
 
     print(f"Evaluating: {model_path.name}")
-    print(f"  conf={_DEFAULT_CONF}, max_det={_DEFAULT_MAX_DET}, imgsz={_DEFAULT_IMGSZ}")
+    print(f"  conf={_DEFAULT_CONF}, max_det={_DEFAULT_MAX_DET}, imgsz={_DEFAULT_IMGSZ}, device={device}")
 
-    model = YOLO(model_path,task="detect")
+    model = YOLO(model_path, task="detect")
 
     # Use patched metrics for memory-efficient evaluation
     with _batched_metrics(flush_interval=_DEFAULT_FLUSH_INTERVAL):
-        metrics = model.val(**val_kwargs)
+        try:
+            metrics = model.val(**val_kwargs)
+        except Exception as e:
+            # Fallback to CPU if GPU fails (e.g., QAT ONNX on Blackwell/RTX 50xx)
+            if fallback_to_cpu and device != "cpu":
+                print(f"  Warning: GPU inference failed ({type(e).__name__}), retrying with CPU...")
+                val_kwargs["device"] = "cpu"
+                model = YOLO(model_path, task="detect")
+                metrics = model.val(**val_kwargs)
+            else:
+                raise
 
     return EvalResult(
         model_name=model_path.stem,
@@ -198,13 +219,20 @@ def evaluate_model(model_path: str | Path, data_yaml: str | Path) -> EvalResult:
     )
 
 
-def compare_models(model_name: str, data_yaml: str | Path) -> dict:
+def compare_models(
+    model_name: str,
+    data_yaml: str | Path,
+    device: str | None = None,
+    onnx_device: str | None = None,
+) -> dict:
     """
     Compare PyTorch and quantized ONNX model accuracy.
 
     Args:
         model_name: Model name (without extension)
         data_yaml: Path to dataset YAML config
+        device: Device for PT model evaluation (default: GPU)
+        onnx_device: Device for ONNX model evaluation (default: GPU, auto fallback to CPU on error)
 
     Returns:
         Comparison report dict
@@ -216,7 +244,7 @@ def compare_models(model_name: str, data_yaml: str | Path) -> dict:
 
     if pt_path.exists():
         print(f"\n[1/2] PT baseline: {pt_path.name}")
-        pt_result = evaluate_model(pt_path, data_yaml)
+        pt_result = evaluate_model(pt_path, data_yaml, device=device)
         results.append(pt_result)
         print(f"  mAP50: {pt_result.map50:.4f}, mAP50-95: {pt_result.map50_95:.4f}")
     else:
@@ -225,7 +253,7 @@ def compare_models(model_name: str, data_yaml: str | Path) -> dict:
 
     if onnx_path.exists():
         print(f"\n[2/2] ONNX: {onnx_path.name}")
-        onnx_result = evaluate_model(onnx_path, data_yaml)
+        onnx_result = evaluate_model(onnx_path, data_yaml, device=onnx_device)
         results.append(onnx_result)
         print(f"  mAP50: {onnx_result.map50:.4f}, mAP50-95: {onnx_result.map50_95:.4f}")
     else:
