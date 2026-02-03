@@ -16,28 +16,28 @@ class EvalResult:
     map50: float
     map50_95: float
     ap: list | None = None
-    speed: dict | None = None
     size_mb: float | None = None
 
 def evaluate_model(
     model_path: str | Path,
     data_yaml: str | Path,
     task: str = "detect",
-    mode: str = "accuracy",
+    device: str | int | None = None,
 ) -> EvalResult:
     """
-    Evaluate model accuracy or performance on validation dataset.
+    Evaluate model accuracy on validation dataset.
+
+    Uses low confidence threshold (0.001) and high max_det (300) for
+    the most accurate mAP measurement.
 
     Args:
         model_path: Path to model file (.pt or .onnx)
         data_yaml: Path to dataset YAML config
         task: Task type (detect, segment, classify)
-        mode: Evaluation mode
-            - "accuracy": low conf(0.001), high max_det(300), with plots/save_json
-            - "performance": deployment-realistic conf(0.25), max_det(100), no plots
+        device: Device to use ('cpu', 0, 1, etc.). None for auto-detect.
 
     Returns:
-        EvalResult with mAP metrics and/or speed
+        EvalResult with mAP metrics
     """
     from ultralytics import YOLO
 
@@ -51,15 +51,15 @@ def evaluate_model(
     model_format = "PyTorch" if model_path.suffix == ".pt" else "ONNX"
     is_pt = model_path.suffix == ".pt"
 
-    val_kwargs = dict(data=str(data_yaml), task=task, imgsz=640, workers=0)
-    if mode == "performance":
-        val_kwargs.update(conf=0.25, max_det=100, plots=False, save_json=False, verbose=False)
-    else:
-        # accuracy mode
-        val_kwargs.update(conf=0.001, max_det=300, plots=True, save_json=True, verbose=True)
-        if is_pt:
-            val_kwargs.update(batch=16, half=True)
-    print(f"Evaluating {model_format} model ({mode}): {model_path.name}")
+    val_kwargs = dict(
+        data=str(data_yaml), task=task, imgsz=640, workers=0,
+        conf=0.001, max_det=300, plots=True, save_json=True, verbose=True,
+    )
+    if device is not None:
+        val_kwargs["device"] = device
+    if is_pt:
+        val_kwargs.update(batch=16, half=True)
+    print(f"Evaluating {model_format} model: {model_path.name}")
 
     model = YOLO(model_path, task=task)
     metrics = model.val(**val_kwargs)
@@ -72,7 +72,6 @@ def evaluate_model(
         map50=metrics.box.map50,
         map50_95=metrics.box.map,
         ap=metrics.box.ap.tolist(),
-        speed=metrics.speed,
         size_mb=size_mb,
     )
 
@@ -80,20 +79,19 @@ def evaluate_model(
 def compare_models(
     model_name: str,
     data_yaml: str | Path,
+    device: str | int | None = None,
 ) -> dict:
     """
-    Compare PyTorch and quantized ONNX model accuracy and performance.
+    Compare PyTorch and quantized ONNX model accuracy.
 
-    Runs three evaluations:
+    Runs two evaluations:
     1. PT accuracy baseline (batch=16, half=True, conf=0.001, max_det=300)
     2. ONNX accuracy verification (conf=0.001, max_det=300)
-    3. ONNX performance benchmark (conf=0.25, max_det=100)
-
-    The ONNX result merges accuracy metrics from run 2 and speed from run 3.
 
     Args:
         model_name: Model name (without extension)
         data_yaml: Path to dataset YAML config
+        device: Device to use ('cpu', 0, 1, etc.). None for auto-detect.
 
     Returns:
         Comparison report dict
@@ -103,30 +101,22 @@ def compare_models(
 
     results = []
 
-    # 1. Evaluate PyTorch baseline (accuracy mode)
+    # 1. Evaluate PyTorch baseline
     if pt_path.exists():
-        print(f"\n[1/3] PT accuracy baseline: {pt_path.name}")
-        pt_result = evaluate_model(pt_path, data_yaml, mode="accuracy")
+        print(f"\n[1/2] PT accuracy baseline: {pt_path.name}")
+        pt_result = evaluate_model(pt_path, data_yaml, device=device)
         results.append(pt_result)
         print(f"  mAP50: {pt_result.map50:.4f}, mAP50-95: {pt_result.map50_95:.4f}")
     else:
         print(f"Warning: PyTorch model not found: {pt_path}")
         pt_result = None
 
-    # 2 & 3. Evaluate ONNX (accuracy + performance)
+    # 2. Evaluate ONNX accuracy
     if onnx_path.exists():
-        # Accuracy verification
-        print(f"\n[2/3] ONNX accuracy verification: {onnx_path.name}")
-        onnx_result = evaluate_model(onnx_path, data_yaml, mode="accuracy")
-        print(f"  mAP50: {onnx_result.map50:.4f}, mAP50-95: {onnx_result.map50_95:.4f}")
-
-        # Performance benchmark
-        print(f"\n[3/3] ONNX performance benchmark: {onnx_path.name}")
-        perf_result = evaluate_model(onnx_path, data_yaml, mode="performance")
-
-        # Merge: keep accuracy metrics, replace speed with deployment-realistic speed
-        onnx_result.speed = perf_result.speed
+        print(f"\n[2/2] ONNX accuracy verification: {onnx_path.name}")
+        onnx_result = evaluate_model(onnx_path, data_yaml, device=device)
         results.append(onnx_result)
+        print(f"  mAP50: {onnx_result.map50:.4f}, mAP50-95: {onnx_result.map50_95:.4f}")
     else:
         print(f"Warning: ONNX model not found: {onnx_path}")
         onnx_result = None
@@ -142,15 +132,6 @@ def compare_models(
         diff_map = pt_result.map50_95 - onnx_result.map50_95
         drop_rate = (diff_map / pt_result.map50_95) * 100 if pt_result.map50_95 > 0 else 0
         size_ratio = pt_result.size_mb / onnx_result.size_mb if onnx_result.size_mb else None
-
-        # Extract total inference speed (preprocess + inference + postprocess)
-        def _total_speed(speed: dict | None) -> float | None:
-            if speed is None:
-                return None
-            return sum(speed.get(k, 0) for k in ("preprocess", "inference", "postprocess"))
-
-        pt_speed = _total_speed(pt_result.speed)
-        onnx_speed = _total_speed(onnx_result.speed)
 
         report["comparison"] = {
             "map50_drop": diff_map50,
@@ -169,8 +150,6 @@ def compare_models(
         print(f"{'mAP50-95':<16} {pt_result.map50_95:>10.4f} {onnx_result.map50_95:>10.4f} {-diff_map:>+10.4f}")
         if pt_result.size_mb is not None and onnx_result.size_mb is not None:
             print(f"{'Size (MB)':<16} {pt_result.size_mb:>10.2f} {onnx_result.size_mb:>10.2f} {size_ratio:>9.1f}x")
-        if pt_speed is not None and onnx_speed is not None:
-            print(f"{'Speed (ms)':<16} {pt_speed:>10.2f} {onnx_speed:>10.2f} {pt_speed / onnx_speed:>9.1f}x")
         print("-" * 60)
         print(f"Accuracy loss: {drop_rate:.2f}%")
 

@@ -30,7 +30,7 @@ import torch
 import modelopt.torch.quantization as mtq
 import modelopt.torch.sparsity as mts
 
-from orinflow.config import DATA_DIR, ONNX_RAW_DIR, SOURCE_MODELS_DIR
+from orinflow.config import DATA_DIR, ONNX_RAW_DIR, SOURCE_MODELS_DIR, print_trtexec_hint
 from orinflow.optimize.qat import (
     _apply_quantizer_exclusions,
     _export_dynamic_modules,
@@ -272,5 +272,6 @@ def sparse_quantize_aware_finetune(
     print(f"Exporting ONNX with QDQ nodes + sparse weights: {onnx_path}")
     _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
     print(f"Saved sparse QAT ONNX to: {onnx_path}")
+    print_trtexec_hint(onnx_path, sparse=True)
 
     return onnx_path

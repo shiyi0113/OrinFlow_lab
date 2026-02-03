@@ -30,7 +30,7 @@ import torch
 
 import modelopt.torch.quantization as mtq
 
-from orinflow.config import DATA_DIR, DEFAULT_OPSET, ONNX_RAW_DIR, SOURCE_MODELS_DIR
+from orinflow.config import DATA_DIR, DEFAULT_OPSET, ONNX_OPTIMIZED_DIR, SOURCE_MODELS_DIR, print_trtexec_hint
 
 # Mapping from user-facing mode strings to ModelOpt quantization preset configs.
 # INT8 is the recommended starting point for CNN/YOLO models.
@@ -326,9 +326,10 @@ def quantize_aware_finetune(
     # We use torch.onnx.export() directly (not YOLO.export()) because the latter
     # calls model.fuse() which destroys QuantConv2d wrappers.
     stem = Path(model_name).stem
-    onnx_path = ONNX_RAW_DIR / f"{stem}_qat_{mode}.onnx"
+    onnx_path = ONNX_OPTIMIZED_DIR / f"{stem}_{mode.upper()}_qat.onnx"
     print(f"Exporting ONNX with QDQ nodes: {onnx_path}")
     _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
     print(f"Saved QAT ONNX to: {onnx_path}")
+    print_trtexec_hint(onnx_path)
 
     return onnx_path

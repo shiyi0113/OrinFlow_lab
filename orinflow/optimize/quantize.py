@@ -5,7 +5,7 @@ import numpy as np
 import onnx
 import re
 from typing import List
-from orinflow.config import CALIB_DIR, ONNX_OPTIMIZED_DIR, ONNX_RAW_DIR
+from orinflow.config import CALIB_DIR, ONNX_OPTIMIZED_DIR, ONNX_RAW_DIR, print_trtexec_hint
 
 def _resolve_exclusion_patterns(model_path: Path, patterns: List[str] | None) -> List[str] | None:
     """
@@ -107,4 +107,6 @@ def quantize_onnx(
     )
 
     print(f"Quantization complete: {output_path}")
+    sparse = "sparse" in output_path.stem.lower()
+    print_trtexec_hint(output_path, sparse=sparse)
     return output_path

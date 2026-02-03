@@ -24,5 +24,30 @@ DEFAULT_CALIB_SAMPLES = 500
 
 def ensure_dirs():
     """Ensure all required directories exist."""
-    for d in [SOURCE_MODELS_DIR, ONNX_RAW_DIR, ONNX_OPTIMIZED_DIR,DATA_DIR]:
+    for d in [SOURCE_MODELS_DIR, ONNX_RAW_DIR, ONNX_OPTIMIZED_DIR, DATA_DIR]:
         d.mkdir(parents=True, exist_ok=True)
+
+
+def print_trtexec_hint(onnx_path: Path, *, sparse: bool = False) -> None:
+    """Print recommended trtexec command for Jetson edge deployment.
+
+    Args:
+        onnx_path: Path to the ONNX model file.
+        sparse: Whether the model has 2:4 structured sparsity.
+    """
+    onnx_name = onnx_path.name
+    engine_name = onnx_path.stem + ".engine"
+
+    flags = [
+        f"--onnx={onnx_name}",
+        f"--saveEngine={engine_name}",
+        "--int8",
+        "--fp16",
+    ]
+    if sparse:
+        flags.append("--sparsity=enable")
+
+    cmd = "trtexec " + " \\\n         ".join(flags)
+    print(f"\n{'─' * 60}")
+    print("Deployment command (copy to Jetson):")
+    print(f"\n  {cmd}\n")
