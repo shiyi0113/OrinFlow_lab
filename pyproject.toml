@@ -42,6 +42,7 @@ orinflow-quantize = "scripts.quantize:main"
 orinflow-evaluate = "scripts.evaluate:main"
 orinflow-sparsify = "scripts.sparsify:main"
 orinflow-qat = "scripts.qat:main"
+orinflow-sparse-qat = "scripts.sparse_qat:main"
 
 [tool.setuptools.packages.find]
 include = ["orinflow*", "scripts*"]
