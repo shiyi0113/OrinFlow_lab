@@ -53,7 +53,10 @@ def evaluate_model(
 
     val_kwargs = dict(
         data=str(data_yaml), task=task, imgsz=640, workers=0,
-        conf=0.001, max_det=300, plots=True, save_json=True, verbose=True,
+        conf=0.001, max_det=300, 
+        plots=False,      # 不生成图表
+        save_json=False,  # 不保存 JSON
+        verbose=True,
     )
     if device is not None:
         val_kwargs["device"] = device

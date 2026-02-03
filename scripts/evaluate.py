@@ -18,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate model accuracy")
     parser.add_argument("-m", "--model", type=str, required=True,
                         help="Model path (.pt/.onnx) for single eval, or model name for --compare")
-    parser.add_argument("--yaml", type=str, default="coco128.yaml", help="Dataset YAML file")
+    parser.add_argument("--yaml", type=str, default="coco.yaml", help="Dataset YAML file")
     parser.add_argument("--compare", action="store_true",
                         help="Compare PT vs quantized ONNX (pass model name without extension)")
     parser.add_argument("--device", type=str, default=None,
