@@ -48,6 +48,6 @@ def print_trtexec_hint(onnx_path: Path, *, sparse: bool = False) -> None:
         flags.append("--sparsity=enable")
 
     cmd = "trtexec " + " \\\n         ".join(flags)
-    print(f"\n{'─' * 60}")
+    print(f"{'─' * 60}")
     print("Deployment command (copy to Jetson):")
-    print(f"\n  {cmd}\n")
+    print(f"{cmd}\n")

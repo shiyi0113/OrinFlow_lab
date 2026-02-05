@@ -12,8 +12,7 @@ def main():
     )
     parser.add_argument("-m", "--model", type=str, required=True, help="Source model filename (e.g. yolo26n.pt)")
     parser.add_argument("--data", type=str, default="coco128.yaml", help="Dataset YAML filename")
-    parser.add_argument(
-        "--mode", type=str, default="int8", choices=["int8", "fp8", "int4_awq", "w4a8"],
+    parser.add_argument("--mode", type=str, default="int8", choices=["int8", "fp8", "int4_awq", "w4a8"],
         help="Quantization mode (default: int8)",
     )
     parser.add_argument("--epochs", type=int, default=10, help="QAT fine-tuning epochs")
@@ -21,8 +20,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4, help="QAT learning rate")
     parser.add_argument("--calib-batch", type=int, default=4, help="Calibration batch size")
     parser.add_argument("--calib-images", type=int, default=512, help="Max calibration images (default: 512)")
-    parser.add_argument(
-        "--exclude", type=str, nargs="*", default=None,
+    parser.add_argument("--exclude", type=str, nargs="*", default=None,
         help="Glob patterns for layers to exclude from quantization (e.g. 'model.0.' 'model.22.')",
     )
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")

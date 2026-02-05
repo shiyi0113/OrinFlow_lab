@@ -23,13 +23,15 @@ RUN python -m pip install --upgrade pip && \
 ENV PIP_CONSTRAINT=""
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/include:/usr/lib/x86_64-linux-gnu"
 
-# 安装 PyTorch GPU (Nightly版本支持RTX5060显卡)
-RUN pip install --pre torch torchvision \
-    --index-url https://download.pytorch.org/whl/nightly/cu129
+# 安装 PyTorch GPU
+RUN pip install torch torchvision \
+    --index-url https://download.pytorch.org/whl/cu129 && \
+    rm -rf /root/.cache/pip
 
 # 安装 NVIDIA ModelOpt + ONNX Runtime GPU
 RUN pip install nvidia-modelopt[all] onnxruntime-gpu onnx \
-    --extra-index-url https://pypi.nvidia.com
+    --extra-index-url https://pypi.nvidia.com && \
+    rm -rf /root/.cache/pip
 
 # 默认启动命令
 CMD ["/bin/bash"]
