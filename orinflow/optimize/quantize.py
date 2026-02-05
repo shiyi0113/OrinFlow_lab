@@ -1,11 +1,41 @@
 """Quantization utilities (PTQ and QAT)."""
 
+import re
 from pathlib import Path
+from typing import List
+
 import numpy as np
 import onnx
-import re
-from typing import List
+
 from orinflow.config import CALIB_DIR, ONNX_OPTIMIZED_DIR, ONNX_RAW_DIR, print_trtexec_hint
+
+
+def _get_calibration_device() -> str:
+    """
+    Auto-detect the best device for calibration.
+
+    Returns:
+        Device string ("cuda:0" or "cpu").
+    """
+    try:
+        from orinflow.runtime import check_onnxruntime
+
+        info = check_onnxruntime()
+        if info.has_cuda:
+            return "cuda:0"
+    except ImportError:
+        pass
+
+    # Fallback: check torch CUDA availability
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda:0"
+    except ImportError:
+        pass
+
+    return "cpu"
 
 def _resolve_exclusion_patterns(model_path: Path, patterns: List[str] | None) -> List[str] | None:
     """
@@ -54,6 +84,7 @@ def quantize_onnx(
     nodes_to_exclude: list[str] | None = None,
     input_dir: Path | None = None,
     output_dir: Path | None = None,
+    device: str | None = None,
 ) -> Path:
     """
     Quantize ONNX model using ModelOpt PTQ.
@@ -66,6 +97,7 @@ def quantize_onnx(
         nodes_to_exclude: List of node name patterns to exclude from quantization
         input_dir: Input directory, defaults to models/onnx_raw
         output_dir: Output directory, defaults to models/onnx_quant
+        device: Device for calibration ("cuda:0", "cpu", etc.). Default: auto-detect GPU, fallback to CPU.
 
     Returns:
         Path to quantized ONNX model
@@ -93,6 +125,12 @@ def quantize_onnx(
     print(f"Calibration data shape: {calib_data.shape}")
     real_nodes_to_exclude = _resolve_exclusion_patterns(model_path, nodes_to_exclude)
 
+    # Determine calibration device
+    if device is None:
+        device = _get_calibration_device()
+    calibration_eps = [device]
+    print(f"Using calibration device: {device}")
+
     # Quantize
     print(f"Quantizing {model_path} with {quantize_mode} mode...")
     quantize(
@@ -102,7 +140,7 @@ def quantize_onnx(
         calibration_method=calibration_method,
         quantize_mode=quantize_mode,
         nodes_to_exclude=real_nodes_to_exclude,
-        calibration_eps=["cuda:0"],
+        calibration_eps=calibration_eps,
         calibration_shapes="images:1x3x640x640",
     )
 

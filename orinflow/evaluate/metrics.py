@@ -10,6 +10,19 @@ from pathlib import Path
 import numpy as np
 
 from orinflow.config import DATA_DIR, ONNX_OPTIMIZED_DIR, SOURCE_MODELS_DIR
+from orinflow.runtime import (
+    check_torchvision_compatibility,
+    disable_ultralytics_autoupdate,
+    patch_torchvision_nms_for_blackwell,
+)
+
+# Prevent Ultralytics from auto-installing CPU-only onnxruntime
+disable_ultralytics_autoupdate()
+
+# Check GPU compatibility and apply patches if needed
+_TV_COMPATIBLE, _TV_WARNING = check_torchvision_compatibility()
+if not _TV_COMPATIBLE:
+    patch_torchvision_nms_for_blackwell()
 
 
 _DEFAULT_CONF = 0.001
@@ -193,6 +206,10 @@ def evaluate_model(
     print(f"Evaluating: {model_path.name}")
     print(f"  conf={_DEFAULT_CONF}, max_det={_DEFAULT_MAX_DET}, imgsz={_DEFAULT_IMGSZ}, device={device}")
 
+    # Note about Blackwell GPU NMS patch
+    if not _TV_COMPATIBLE:
+        print(f"  Note: {_TV_WARNING}")
+
     model = YOLO(model_path, task="detect")
 
     # Use patched metrics for memory-efficient evaluation
@@ -200,9 +217,13 @@ def evaluate_model(
         try:
             metrics = model.val(**val_kwargs)
         except Exception as e:
-            # Fallback to CPU if GPU fails (e.g., QAT ONNX on Blackwell/RTX 50xx)
+            # Fallback to CPU if GPU fails (e.g., torchvision NMS on Blackwell/RTX 50xx)
             if fallback_to_cpu and device != "cpu":
-                print(f"  Warning: GPU inference failed ({type(e).__name__}), retrying with CPU...")
+                error_msg = str(e)
+                if "no kernel image" in error_msg or "AcceleratorError" in type(e).__name__:
+                    print(f"  Warning: GPU failed (Blackwell/RTX 50 torchvision incompatibility), using CPU...")
+                else:
+                    print(f"  Warning: GPU inference failed ({type(e).__name__}), retrying with CPU...")
                 val_kwargs["device"] = "cpu"
                 model = YOLO(model_path, task="detect")
                 metrics = model.val(**val_kwargs)
