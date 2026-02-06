@@ -11,9 +11,8 @@ def main():
         description="Sparsify YOLO model (2:4 structured sparsity + SAT fine-tuning)"
     )
     parser.add_argument("-m", "--model", type=str, required=True, help="Source model filename (e.g. yolo26x.pt)")
-    parser.add_argument("--data", type=str, default="coco_medium.yaml", help="Dataset YAML filename")
-    parser.add_argument(
-        "--mode", type=str, default="sparsegpt", choices=["sparsegpt", "sparse_magnitude"],
+    parser.add_argument("--data", type=str, default="coco.yaml", help="Dataset YAML filename")
+    parser.add_argument("--mode", type=str, default="sparsegpt", choices=["sparsegpt", "sparse_magnitude"],
         help="Sparsity algorithm (default: sparsegpt)",
     )
     parser.add_argument("--epochs", type=int, default=10, help="SAT fine-tuning epochs")

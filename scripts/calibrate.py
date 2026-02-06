@@ -7,7 +7,7 @@ from orinflow.data import prepare_calibration_data
 
 def main():
     parser = argparse.ArgumentParser(description="Prepare calibration data")
-    parser.add_argument("--yaml", type=str, default="coco128.yaml", help="Dataset YAML file")
+    parser.add_argument("--yaml", type=str, default="coco.yaml", help="Dataset YAML file")
     parser.add_argument("--split", type=str, default="train", choices=["train", "val", "test"], help="Dataset split")
     parser.add_argument("--num-images", type=int, default=500, help="Number of calibration images")
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")

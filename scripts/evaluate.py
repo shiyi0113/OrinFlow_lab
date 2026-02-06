@@ -2,7 +2,7 @@
 """Evaluate and compare model accuracy.
 
 # 单模型精度评估
-orinflow-evaluate -m models/source/yolo26n.pt --yaml coco128.yaml 2>&1 | tee yolo26n.log
+orinflow-evaluate -m models/source/yolo26n.pt --yaml coco.yaml 2>&1 | tee yolo26n.log
 
 # ONNX 模型精度评估
 orinflow-evaluate -m models/onnx/optimized/yolo26n.onnx --yaml coco.yaml

@@ -11,13 +11,11 @@ def main():
         description="Combined 2:4 Sparsity + QAT for YOLO model (Route 4: SAT -> QAT -> ONNX with QDQ + sparsity)"
     )
     parser.add_argument("-m", "--model", type=str, required=True, help="Source model filename (e.g. yolo26n.pt)")
-    parser.add_argument("--data", type=str, default="coco128.yaml", help="Dataset YAML filename")
-    parser.add_argument(
-        "--sparsity-mode", type=str, default="sparsegpt", choices=["sparsegpt", "sparse_magnitude"],
+    parser.add_argument("--data", type=str, default="coco.yaml", help="Dataset YAML filename")
+    parser.add_argument("--sparsity-mode", type=str, default="sparsegpt", choices=["sparsegpt", "sparse_magnitude"],
         help="Sparsity algorithm (default: sparsegpt)",
     )
-    parser.add_argument(
-        "--qat-mode", type=str, default="int8", choices=["int8", "fp8", "int4_awq", "w4a8"],
+    parser.add_argument("--qat-mode", type=str, default="int8", choices=["int8", "fp8", "int4_awq", "w4a8"],
         help="Quantization mode (default: int8)",
     )
     parser.add_argument("--sat-epochs", type=int, default=10, help="SAT fine-tuning epochs")
@@ -27,12 +25,10 @@ def main():
     parser.add_argument("--qat-lr", type=float, default=1e-4, help="QAT learning rate")
     parser.add_argument("--calib-batch", type=int, default=4, help="Calibration batch size")
     parser.add_argument("--calib-images", type=int, default=512, help="Max calibration images (default: 512)")
-    parser.add_argument(
-        "--exclude-sparse", type=str, nargs="*", default=None,
+    parser.add_argument("--exclude-sparse", type=str, nargs="*", default=None,
         help="Glob patterns for layers to exclude from sparsification (e.g. 'model.0.' 'model.22.')",
     )
-    parser.add_argument(
-        "--exclude-quant", type=str, nargs="*", default=None,
+    parser.add_argument("--exclude-quant", type=str, nargs="*", default=None,
         help="Glob patterns for layers to exclude from quantization (e.g. 'model.0.' 'model.22.')",
     )
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")

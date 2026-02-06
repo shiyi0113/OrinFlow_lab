@@ -25,8 +25,6 @@ Typical workflow:
 import copy
 from pathlib import Path
 
-import torch
-
 import modelopt.torch.quantization as mtq
 import modelopt.torch.sparsity as mts
 

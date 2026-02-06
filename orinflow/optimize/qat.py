@@ -314,7 +314,7 @@ def quantize_aware_finetune(
         batch=batch,
         lr0=lr,
         device=device,
-        workers=0,
+        workers=8,
         amp=False,
     ))
     qat_trainer.model = model_yolo.model
