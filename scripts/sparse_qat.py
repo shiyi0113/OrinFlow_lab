@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--batch", type=int, default=16, help="Training batch size")
     parser.add_argument("--sat-lr", type=float, default=1e-4, help="SAT learning rate")
     parser.add_argument("--qat-lr", type=float, default=1e-4, help="QAT learning rate")
+    parser.add_argument("--optimizer", type=str, default="SGD", help="Optimizer (AdamW, SGD, Adam, RAdam, etc.)")
+    parser.add_argument("--workers", type=int, default=8, help="Dataloader workers")
     parser.add_argument("--calib-batch", type=int, default=4, help="Calibration batch size")
     parser.add_argument("--calib-images", type=int, default=512, help="Max calibration images (default: 512)")
     parser.add_argument("--exclude-sparse", type=str, nargs="*", default=None,
@@ -45,6 +47,8 @@ def main():
         batch=args.batch,
         sat_lr=args.sat_lr,
         qat_lr=args.qat_lr,
+        optimizer=args.optimizer,
+        workers=args.workers,
         calib_batch=args.calib_batch,
         calib_images=args.calib_images,
         exclude_sparse=args.exclude_sparse,

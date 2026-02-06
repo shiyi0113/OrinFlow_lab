@@ -147,6 +147,8 @@ def sparsify_and_finetune(
     epochs: int = 10,
     batch: int = 16,
     lr: float = 1e-4,
+    optimizer: str = "SGD",
+    workers: int = 8,
     calib_batch: int = 4,
     calib_images: int = 512,
     exclude: list[str] | None = None,
@@ -170,6 +172,8 @@ def sparsify_and_finetune(
         epochs: SAT fine-tuning epochs
         batch: Training batch size
         lr: Learning rate for SAT
+        optimizer: Optimizer name (e.g. "AdamW", "SGD", "Adam", "RAdam").
+        workers: Number of dataloader workers.
         calib_batch: Batch size for SparseGPT calibration
         calib_images: Max number of images for SparseGPT calibration (default 512)
         exclude: Glob patterns for layers to exclude from sparsification (fnmatch-style).
@@ -252,9 +256,10 @@ def sparsify_and_finetune(
         imgsz=imgsz,
         epochs=epochs,
         batch=batch,
+        optimizer=optimizer,
         lr0=lr,
         device=device,
-        workers=0,
+        workers=workers,
     ))
     sat_trainer.model = model_yolo.model
     sat_trainer.train()

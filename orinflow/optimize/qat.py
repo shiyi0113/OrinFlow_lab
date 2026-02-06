@@ -215,6 +215,8 @@ def quantize_aware_finetune(
     epochs: int = 10,
     batch: int = 16,
     lr: float = 1e-4,
+    optimizer: str = "SGD",
+    workers: int = 8,
     calib_batch: int = 4,
     calib_images: int = 512,
     exclude: list[str] | None = None,
@@ -240,6 +242,8 @@ def quantize_aware_finetune(
         epochs: QAT fine-tuning epochs.
         batch: Training batch size.
         lr: Learning rate for QAT.
+        optimizer: Optimizer name (e.g. "AdamW", "SGD", "Adam", "RAdam").
+        workers: Number of dataloader workers.
         calib_batch: Batch size for calibration data forwarding.
         calib_images: Max number of images for calibration (default 512).
         exclude: Glob patterns for layers to exclude from quantization
@@ -312,9 +316,10 @@ def quantize_aware_finetune(
         imgsz=imgsz,
         epochs=epochs,
         batch=batch,
+        optimizer=optimizer,
         lr0=lr,
         device=device,
-        workers=8,
+        workers=workers,
         amp=False,
     ))
     qat_trainer.model = model_yolo.model

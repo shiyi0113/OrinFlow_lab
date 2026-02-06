@@ -102,6 +102,8 @@ def sparse_quantize_aware_finetune(
     batch: int = 16,
     sat_lr: float = 1e-4,
     qat_lr: float = 1e-4,
+    optimizer: str = "SGD",
+    workers: int = 8,
     calib_batch: int = 4,
     calib_images: int = 512,
     exclude_sparse: list[str] | None = None,
@@ -132,6 +134,8 @@ def sparse_quantize_aware_finetune(
         batch: Training batch size (shared for SAT and QAT).
         sat_lr: Learning rate for SAT.
         qat_lr: Learning rate for QAT.
+        optimizer: Optimizer name (e.g. "AdamW", "SGD", "Adam", "RAdam").
+        workers: Number of dataloader workers.
         calib_batch: Batch size for calibration (sparsity + quantization).
         calib_images: Max number of images for calibration (default 512).
         exclude_sparse: Glob patterns for layers to exclude from sparsification.
@@ -203,9 +207,10 @@ def sparse_quantize_aware_finetune(
         imgsz=imgsz,
         epochs=sat_epochs,
         batch=batch,
+        optimizer=optimizer,
         lr0=sat_lr,
         device=device,
-        workers=0,
+        workers=workers,
     ))
     sat_trainer.model = model_yolo.model
     sat_trainer.train()
@@ -249,9 +254,10 @@ def sparse_quantize_aware_finetune(
         imgsz=imgsz,
         epochs=qat_epochs,
         batch=batch,
+        optimizer=optimizer,
         lr0=qat_lr,
         device=device,
-        workers=0,
+        workers=workers,
         amp=False,
     ))
     qat_trainer.phase = "qat"
