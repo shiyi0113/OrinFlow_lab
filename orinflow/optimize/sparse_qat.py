@@ -108,6 +108,7 @@ def sparse_quantize_aware_finetune(
     calib_images: int = 512,
     exclude_sparse: list[str] | None = None,
     exclude_quant: list[str] | None = None,
+    calibrator: str = "histogram",
     imgsz: int = 640,
     device: int = 0,
 ) -> Path:
@@ -140,6 +141,9 @@ def sparse_quantize_aware_finetune(
         calib_images: Max number of images for calibration (default 512).
         exclude_sparse: Glob patterns for layers to exclude from sparsification.
         exclude_quant: Glob patterns for layers to exclude from quantization.
+        calibrator: Calibrator for activation quantizers -- "histogram" (default,
+            entropy-based, robust to outliers) or "max" (global max, fast but
+            outlier-sensitive). Weight quantizers always use "max".
         imgsz: Input image size.
         device: CUDA device ID.
 
@@ -228,10 +232,10 @@ def sparse_quantize_aware_finetune(
                 break
             model(batch_data["img"].to(cuda_device).float() / 255.0)
 
-    qat_config = _resolve_qat_config(qat_mode)
+    qat_config = _resolve_qat_config(qat_mode, calibrator)
     print(
-        f"Quantizing sparsified model with {qat_mode} mode "
-        f"(calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)..."
+        f"Quantizing sparsified model with {qat_mode} mode (calibrator: {calibrator}, "
+        f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)..."
     )
     mtq.quantize(sat_trainer.model, qat_config, forward_loop)
 

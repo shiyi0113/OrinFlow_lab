@@ -42,23 +42,48 @@ QAT_MODE_MAP: dict[str, dict] = {
     "w4a8": mtq.W4A8_AWQ_BETA_CFG,
 }
 
+# Supported calibrator choices for activation (input) quantizers.
+# "histogram" uses HistogramCalibrator with entropy-based amax (recommended for CNN/YOLO).
+# "max" uses MaxCalibrator which tracks the global absolute max (fast but outlier-sensitive).
+# Weight quantizers always use "max" since weight distributions are typically well-behaved.
+CALIBRATOR_CHOICES = ("histogram", "max")
 
-def _resolve_qat_config(mode: str) -> dict:
+
+def _resolve_qat_config(mode: str, calibrator: str = "histogram") -> dict:
     """Resolve a user-facing mode string to a ModelOpt quantization config.
 
     Args:
         mode: One of "int8", "fp8", "int4_awq", "w4a8".
+        calibrator: Calibrator for activation (input) quantizers.
+            "histogram" uses HistogramCalibrator with entropy-based amax computation,
+            which is robust to outliers and recommended for CNN/YOLO models.
+            "max" uses MaxCalibrator which tracks the global absolute maximum
+            (fast but sensitive to outlier activations).
+            Weight quantizers always use "max" regardless of this setting.
 
     Returns:
-        Deep copy of the corresponding ModelOpt preset config dict.
+        Deep copy of the corresponding ModelOpt preset config dict with calibrator applied.
 
     Raises:
-        ValueError: If mode is not recognized.
+        ValueError: If mode or calibrator is not recognized.
     """
     if mode not in QAT_MODE_MAP:
         valid = ", ".join(sorted(QAT_MODE_MAP.keys()))
         raise ValueError(f"Unknown QAT mode '{mode}'. Valid modes: {valid}")
-    return copy.deepcopy(QAT_MODE_MAP[mode])
+    if calibrator not in CALIBRATOR_CHOICES:
+        valid = ", ".join(CALIBRATOR_CHOICES)
+        raise ValueError(f"Unknown calibrator '{calibrator}'. Valid choices: {valid}")
+
+    config = copy.deepcopy(QAT_MODE_MAP[mode])
+
+    if calibrator != "max":
+        # Override activation calibrator. Weight quantizers keep "max" (stable distributions).
+        # HistogramCalibrator collects activation histograms during the calibration forward loop,
+        # then compute_amax() uses entropy (KL-divergence minimization) to find the optimal
+        # clipping range, ignoring outliers that would otherwise stretch the quantization range.
+        config["quant_cfg"]["*input_quantizer"]["calibrator"] = calibrator
+
+    return config
 
 
 def _apply_quantizer_exclusions(model: torch.nn.Module, exclude: list[str]) -> None:
@@ -220,6 +245,7 @@ def quantize_aware_finetune(
     calib_batch: int = 4,
     calib_images: int = 512,
     exclude: list[str] | None = None,
+    calibrator: str = "histogram",
     imgsz: int = 640,
     device: int = 0,
 ) -> Path:
@@ -249,6 +275,9 @@ def quantize_aware_finetune(
         exclude: Glob patterns for layers to exclude from quantization
             (fnmatch-style). Patterns without wildcards are auto-wrapped
             as ``*pattern*``. E.g. ``["model.0.", "model.22."]``.
+        calibrator: Calibrator for activation quantizers -- "histogram" (default,
+            entropy-based, robust to outliers) or "max" (global max, fast but
+            outlier-sensitive). Weight quantizers always use "max".
         imgsz: Input image size.
         device: CUDA device ID.
 
@@ -291,9 +320,9 @@ def quantize_aware_finetune(
                 break
             model(batch_data["img"].to(cuda_device).float() / 255.0)
 
-    qat_config = _resolve_qat_config(mode)
-    print(f"Quantizing model with {mode} mode "
-          f"(calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)...")
+    qat_config = _resolve_qat_config(mode, calibrator)
+    print(f"Quantizing model with {mode} mode (calibrator: {calibrator}, "
+          f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)...")
     mtq.quantize(model_yolo.model, qat_config, forward_loop)
 
     # ── 3. Apply exclusions ────────────────────────────────────────

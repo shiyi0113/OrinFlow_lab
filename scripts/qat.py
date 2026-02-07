@@ -25,6 +25,9 @@ def main():
     parser.add_argument("--exclude", type=str, nargs="*", default=None,
         help="Glob patterns for layers to exclude from quantization (e.g. 'model.0.' 'model.22.')",
     )
+    parser.add_argument("--calibrator", type=str, default="histogram", choices=["histogram", "max"],
+        help="Activation calibrator: 'histogram' (entropy-based, default) or 'max' (global max, outlier-sensitive)",
+    )
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--device", type=int, default=0, help="CUDA device ID")
     args = parser.parse_args()
@@ -41,6 +44,7 @@ def main():
         calib_batch=args.calib_batch,
         calib_images=args.calib_images,
         exclude=args.exclude,
+        calibrator=args.calibrator,
         imgsz=args.imgsz,
         device=args.device,
     )
