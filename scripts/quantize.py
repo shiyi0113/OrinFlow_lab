@@ -28,7 +28,6 @@ def main():
         calibration_method=args.method,
         nodes_to_exclude=args.exclude,
         device=args.device,
-
     )
 
 if __name__ == "__main__":

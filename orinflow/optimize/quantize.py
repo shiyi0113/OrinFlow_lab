@@ -77,8 +77,8 @@ def _resolve_exclusion_patterns(model_path: Path, patterns: List[str] | None) ->
     return final_list
 
 def quantize_onnx(
-    model_name: str | None = None,
-    data_yaml: str | None = None,
+    model_name: str,
+    data_yaml: str,
     num_calib_images: int = DEFAULT_CALIB_SAMPLES,
     imgsz: int = DEFAULT_INPUT_SIZE,
     quantize_mode: str = "int8",
