@@ -14,7 +14,6 @@ ONNX_OPTIMIZED_DIR = MODELS_DIR / "onnx" / "optimized"
 # Data directories
 DATA_DIR = PROJECT_ROOT / "datasets"
 TEST_DIR = DATA_DIR / "test"
-CALIB_DIR = DATA_DIR / "calib"
 
 # Default settings
 DEFAULT_INPUT_SIZE = 640
@@ -51,3 +50,4 @@ def print_trtexec_hint(onnx_path: Path, *, sparse: bool = False) -> None:
     print(f"{'─' * 60}")
     print("Deployment command (copy to Jetson):")
     print(f"{cmd}\n")
+    print(f"{'─' * 60}")

@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import yaml
 
-from orinflow.config import DATA_DIR, CALIB_DIR, DEFAULT_CALIB_SAMPLES, DEFAULT_INPUT_SIZE
+from orinflow.config import DATA_DIR, DEFAULT_CALIB_SAMPLES, DEFAULT_INPUT_SIZE
 
 from .preprocessing import preprocess_for_yolo
 
@@ -154,30 +154,13 @@ def _exec_download_script(script: str, yaml_cfg: dict) -> None:
     print("Download script complete.")
 
 
-def prepare_calibration_data(
+def get_calibration_data(
     yaml_file: str | Path,
     split: str = "train",
     num_images: int = DEFAULT_CALIB_SAMPLES,
     input_size: int = DEFAULT_INPUT_SIZE,
-    output_name: str | None = None,
-) -> Path:
-    """
-    Prepare calibration data for quantization.
-
-    Args:
-        yaml_file: Path to dataset YAML file
-        split: Dataset split to use
-        num_images: Number of calibration images
-        input_size: Model input size
-        output_name: Output file name (without extension), defaults to {yaml_stem}_calib
-
-    Returns:
-        Path to saved calibration data (.npy)
-    """
+) -> np.ndarray:
     yaml_path = Path(yaml_file)
-    if output_name is None:
-        output_name = yaml_path.stem
-    output_path = CALIB_DIR / f"{output_name}.npy"
 
     # Load image paths
     image_paths = load_dataset_images(yaml_path, split, num_images)
@@ -185,26 +168,29 @@ def prepare_calibration_data(
     # Process images
     print(f"Preprocessing {len(image_paths)} images...")
     calib_data = []
-    for p in image_paths:
+    
+    for i, p in enumerate(image_paths):
         img = cv2.imread(str(p))
         if img is None:
             print(f"Warning: Cannot read image: {p}")
             continue
+        
+        # Preprocess: Letterbox -> CHW -> Normalize
         img_tensor = preprocess_for_yolo(img, input_size=(input_size, input_size))
         calib_data.append(img_tensor)
+        
+        # Optional: Print progress for large datasets
+        if (i + 1) % 50 == 0:
+            print(f"  Processed {i + 1}/{len(image_paths)} images...")
 
     if len(calib_data) == 0:
         raise ValueError("No images successfully processed")
 
     calib_blob = np.concatenate(calib_data, axis=0)
-    print(f"Calibration data shape: {calib_blob.shape}")
-    print(f"Data type: {calib_blob.dtype}")
-    print(f"Value range: [{calib_blob.min():.3f}, {calib_blob.max():.3f}]")
+    
+    print(f"Calibration data ready.")
+    print(f"  Shape: {calib_blob.shape}")
+    print(f"  Type:  {calib_blob.dtype}")
+    print(f"  Range: [{calib_blob.min():.3f}, {calib_blob.max():.3f}]")
 
-    # Save
-    CALIB_DIR.mkdir(parents=True, exist_ok=True)
-    np.save(output_path, calib_blob)
-    print(f"Saved to: {output_path}")
-    print(f"File size: {os.path.getsize(output_path) / 1024 / 1024:.2f} MB")
-
-    return output_path
+    return calib_blob

@@ -398,7 +398,6 @@ def quantize_aware_finetune(
     onnx_path = ONNX_OPTIMIZED_DIR / f"{stem}_{mode.upper()}_qat.onnx"
     print(f"Exporting ONNX with QDQ nodes: {onnx_path}")
     _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
-    print(f"Saved QAT ONNX to: {onnx_path}")
     print_trtexec_hint(onnx_path)
 
     return onnx_path
