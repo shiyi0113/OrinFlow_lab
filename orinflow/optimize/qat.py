@@ -49,41 +49,64 @@ QAT_MODE_MAP: dict[str, dict] = {
 CALIBRATOR_CHOICES = ("histogram", "max")
 
 
-def _resolve_qat_config(mode: str, calibrator: str = "histogram") -> dict:
+def _resolve_qat_config(mode: str) -> dict:
     """Resolve a user-facing mode string to a ModelOpt quantization config.
 
     Args:
         mode: One of "int8", "fp8", "int4_awq", "w4a8".
-        calibrator: Calibrator for activation (input) quantizers.
-            "histogram" uses HistogramCalibrator with entropy-based amax computation,
-            which is robust to outliers and recommended for CNN/YOLO models.
-            "max" uses MaxCalibrator which tracks the global absolute maximum
-            (fast but sensitive to outlier activations).
-            Weight quantizers always use "max" regardless of this setting.
 
     Returns:
-        Deep copy of the corresponding ModelOpt preset config dict with calibrator applied.
+        Deep copy of the corresponding ModelOpt preset config dict.
 
     Raises:
-        ValueError: If mode or calibrator is not recognized.
+        ValueError: If mode is not recognized.
     """
     if mode not in QAT_MODE_MAP:
         valid = ", ".join(sorted(QAT_MODE_MAP.keys()))
         raise ValueError(f"Unknown QAT mode '{mode}'. Valid modes: {valid}")
-    if calibrator not in CALIBRATOR_CHOICES:
-        valid = ", ".join(CALIBRATOR_CHOICES)
-        raise ValueError(f"Unknown calibrator '{calibrator}'. Valid choices: {valid}")
+    return copy.deepcopy(QAT_MODE_MAP[mode])
 
-    config = copy.deepcopy(QAT_MODE_MAP[mode])
 
-    if calibrator != "max":
-        # Override activation calibrator. Weight quantizers keep "max" (stable distributions).
-        # HistogramCalibrator collects activation histograms during the calibration forward loop,
-        # then compute_amax() uses entropy (KL-divergence minimization) to find the optimal
-        # clipping range, ignoring outliers that would otherwise stretch the quantization range.
-        config["quant_cfg"]["*input_quantizer"]["calibrator"] = calibrator
+@torch.no_grad()
+def _histogram_recalibrate(model: torch.nn.Module, forward_loop) -> None:
+    """Recalibrate activation quantizers using HistogramCalibrator with entropy method.
 
-    return config
+    After ``mtq.quantize()`` completes max calibration, this function replaces
+    each input (activation) quantizer's calibrator with a HistogramCalibrator,
+    re-runs the calibration forward loop to collect activation histograms, then
+    computes amax via entropy (KL-divergence minimization) to find the optimal
+    clipping range.  Weight quantizers are left untouched.
+
+    This is necessary because ``max_calibrate()`` calls
+    ``finish_stats_collection(model)`` without a ``method`` argument, which fails
+    for HistogramCalibrator (requires ``method``).  We work around this by
+    performing histogram recalibration as a targeted post-processing step.
+
+    Args:
+        model: Quantized model (after ``mtq.quantize()``).
+        forward_loop: Callable that forwards calibration data through the model.
+    """
+    from modelopt.torch.quantization.calib.histogram import HistogramCalibrator
+    from modelopt.torch.quantization.nn.modules.tensor_quantizer import TensorQuantizer
+
+    # 1. Replace input calibrators with HistogramCalibrator and enable calibration.
+    #    Weight quantizers keep MaxCalibrator (weight distributions are stable).
+    input_quantizers = []
+    for name, module in model.named_modules():
+        if isinstance(module, TensorQuantizer) and "input_quantizer" in name and not module._disabled:
+            module._calibrator = HistogramCalibrator(module._num_bits, module._axis, module._unsigned)
+            module.disable_quant()
+            module.enable_calib()
+            input_quantizers.append(module)
+
+    # 2. Forward calibration data to collect activation histograms.
+    forward_loop(model)
+
+    # 3. Compute amax from histograms using entropy method and restore quant mode.
+    for module in input_quantizers:
+        module.load_calib_amax("entropy")
+        module.enable_quant()
+        module.disable_calib()
 
 
 def _apply_quantizer_exclusions(model: torch.nn.Module, exclude: list[str]) -> None:
@@ -286,6 +309,10 @@ def quantize_aware_finetune(
     """
     from ultralytics import YOLO
 
+    if calibrator not in CALIBRATOR_CHOICES:
+        valid = ", ".join(CALIBRATOR_CHOICES)
+        raise ValueError(f"Unknown calibrator '{calibrator}'. Valid choices: {valid}")
+
     QATDetectionTrainer = _make_qat_trainer_cls()
 
     model_path = SOURCE_MODELS_DIR / model_name
@@ -320,10 +347,18 @@ def quantize_aware_finetune(
                 break
             model(batch_data["img"].to(cuda_device).float() / 255.0)
 
-    qat_config = _resolve_qat_config(mode, calibrator)
+    qat_config = _resolve_qat_config(mode)
     print(f"Quantizing model with {mode} mode (calibrator: {calibrator}, "
           f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)...")
     mtq.quantize(model_yolo.model, qat_config, forward_loop)
+
+    # Recalibrate activation quantizers with histogram/entropy if requested.
+    # mtq.quantize() above uses max calibration (algorithm="max") which works
+    # for MaxCalibrator but not HistogramCalibrator.  We perform a targeted
+    # post-processing step to swap input calibrators and recompute amax.
+    if calibrator == "histogram":
+        print("Recalibrating activations with histogram/entropy...")
+        _histogram_recalibrate(model_yolo.model, forward_loop)
 
     # ── 3. Apply exclusions ────────────────────────────────────────
     if exclude:

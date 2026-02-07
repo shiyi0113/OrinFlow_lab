@@ -33,6 +33,7 @@ from orinflow.optimize.qat import (
     _apply_quantizer_exclusions,
     _export_dynamic_modules,
     _export_qat_onnx,
+    _histogram_recalibrate,
     _resolve_qat_config,
 )
 from orinflow.optimize.sparsify import _build_sparsity_rules, check_sparsity
@@ -152,6 +153,12 @@ def sparse_quantize_aware_finetune(
     """
     from ultralytics import YOLO
 
+    from orinflow.optimize.qat import CALIBRATOR_CHOICES
+
+    if calibrator not in CALIBRATOR_CHOICES:
+        valid = ", ".join(CALIBRATOR_CHOICES)
+        raise ValueError(f"Unknown calibrator '{calibrator}'. Valid choices: {valid}")
+
     SparseQATTrainer = _make_sparse_qat_trainer_cls()
 
     model_path = SOURCE_MODELS_DIR / model_name
@@ -232,12 +239,16 @@ def sparse_quantize_aware_finetune(
                 break
             model(batch_data["img"].to(cuda_device).float() / 255.0)
 
-    qat_config = _resolve_qat_config(qat_mode, calibrator)
+    qat_config = _resolve_qat_config(qat_mode)
     print(
         f"Quantizing sparsified model with {qat_mode} mode (calibrator: {calibrator}, "
         f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)..."
     )
     mtq.quantize(sat_trainer.model, qat_config, forward_loop)
+
+    if calibrator == "histogram":
+        print("Recalibrating activations with histogram/entropy...")
+        _histogram_recalibrate(sat_trainer.model, forward_loop)
 
     if exclude_quant:
         print("Resolving quantization exclusion patterns:")
