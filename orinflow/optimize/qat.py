@@ -196,7 +196,7 @@ def _export_dynamic_modules(model: torch.nn.Module) -> None:
     from modelopt.torch.opt.dynamic import DynamicModule
 
     for _name, child in list(model.named_children()):
-        if isinstance(child, DynamicModule):
+        while isinstance(child, DynamicModule):
             child.export()
         _export_dynamic_modules(child)
 
@@ -220,11 +220,25 @@ def _make_qat_trainer_cls():
         """
 
         def _setup_train(self):
-            """Enable gradients on all float params before base setup."""
+            """Enable gradients on all float params before base setup.
+
+            Bypasses check_amp() which fails on GPUs where torchvision NMS
+            CUDA kernels are unavailable (e.g. Blackwell/sm_120).
+            AMP is always disabled for QAT since FakeQuantize requires FP32.
+            """
             for v in self.model.parameters():
                 if not v.requires_grad and v.dtype.is_floating_point:
                     v.requires_grad = True
-            super()._setup_train()
+            self.args.amp = False
+            from ultralytics.utils import checks
+
+            orig_check_amp = checks.check_amp
+            checks.check_amp = lambda *a, **kw: False
+            try:
+                super()._setup_train()
+            finally:
+                checks.check_amp = orig_check_amp
+                
 
         def save_model(self):
             """Export DynamicModule copies to pickle-safe modules before saving."""

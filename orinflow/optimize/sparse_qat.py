@@ -24,11 +24,12 @@ Typical workflow:
 
 import copy
 from pathlib import Path
-
+import gc
+import torch
 import modelopt.torch.quantization as mtq
 import modelopt.torch.sparsity as mts
 
-from orinflow.config import DATA_DIR, ONNX_RAW_DIR, SOURCE_MODELS_DIR, print_trtexec_hint
+from orinflow.config import DATA_DIR, ONNX_OPTIMIZED_DIR, SOURCE_MODELS_DIR, print_trtexec_hint
 from orinflow.optimize.qat import (
     _apply_quantizer_exclusions,
     _export_dynamic_modules,
@@ -59,11 +60,24 @@ def _make_sparse_qat_trainer_cls():
         phase = "sat"
 
         def _setup_train(self):
-            """Enable gradients on all float params before base setup."""
+            """Enable gradients on all float params before base setup.
+
+            Bypasses check_amp() which fails on GPUs where torchvision NMS
+            CUDA kernels are unavailable (e.g. Blackwell/sm_120).
+            AMP is always disabled for SAT/QAT since DynamicModule requires FP32.
+            """
             for v in self.model.parameters():
                 if not v.requires_grad and v.dtype.is_floating_point:
                     v.requires_grad = True
-            super()._setup_train()
+            self.args.amp = False
+            from ultralytics.utils import checks
+
+            orig_check_amp = checks.check_amp
+            checks.check_amp = lambda *a, **kw: False
+            try:
+                super()._setup_train()
+            finally:
+                checks.check_amp = orig_check_amp
 
         def save_model(self):
             """Export DynamicModule copies to pickle-safe modules before saving."""
@@ -178,7 +192,10 @@ def sparse_quantize_aware_finetune(
     model_yolo.to(cuda_device)
     model_yolo.eval()
 
-    # ── Build calibration dataloader (shared for sparsity + quantization) ──
+    max_iters = max(1, calib_images // calib_batch)
+
+    # ── 2. Sparsify ───────────────────────────────────────────────
+    # Build calibration dataloader for sparsification.
     tmp_trainer = SparseQATTrainer(
         overrides=dict(
             model=str(model_path),
@@ -187,15 +204,13 @@ def sparse_quantize_aware_finetune(
         )
     )
     tmp_trainer.setup_model()
-    calib_loader = tmp_trainer.get_dataloader(
+    sparse_calib_loader = tmp_trainer.get_dataloader(
         tmp_trainer.data["train"],
         batch_size=calib_batch,
         rank=-1,
         mode="train",
     )
-    max_iters = max(1, calib_images // calib_batch)
 
-    # ── 2. Sparsify ───────────────────────────────────────────────
     def collect_func(batch_data):
         """Extract and normalize images from batch for SparseGPT calibration."""
         return batch_data["img"].to(cuda_device).float() / 255.0
@@ -205,7 +220,7 @@ def sparse_quantize_aware_finetune(
         f"(calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)..."
     )
     sparsify_config = {
-        "data_loader": calib_loader,
+        "data_loader": sparse_calib_loader,
         "collect_func": collect_func,
         "max_iter_data_loader": max_iters,
     }
@@ -218,6 +233,10 @@ def sparse_quantize_aware_finetune(
         sparsify_mode_spec = sparsity_mode
 
     mts.sparsify(model_yolo.model, mode=sparsify_mode_spec, config=sparsify_config)
+
+    # Free sparsity calibration resources (dataloader workers + model copy).
+    del tmp_trainer, sparse_calib_loader
+    gc.collect()
 
     print("Post-sparsification:")
     check_sparsity(model_yolo.model)
@@ -234,6 +253,7 @@ def sparse_quantize_aware_finetune(
         lr0=sat_lr,
         device=device,
         workers=workers,
+        amp=False,
         warmup_epochs=warmup_epochs,
         close_mosaic=close_mosaic,
     )
@@ -249,6 +269,32 @@ def sparse_quantize_aware_finetune(
     # ── 4. Quantize + Calibrate ────────────────────────────────────
     # Apply quantization ON TOP of sparsity DynamicModules.
     # The sparsity wrappers remain intact, enforcing masks during QAT.
+    
+    # Extract model and free SAT trainer (optimizer state, EMA, dataloaders).
+    qat_model = sat_trainer.model
+    del sat_trainer
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # ── 4. Quantize + Calibrate ────────────────────────────────────
+    # Apply quantization ON TOP of sparsity DynamicModules.
+    # The sparsity wrappers remain intact, enforcing masks during QAT.
+    # Build a fresh calibration dataloader (previous one freed with tmp_trainer).
+    calib_trainer = SparseQATTrainer(
+        overrides=dict(
+            model=str(model_path),
+            data=str(data_path),
+            imgsz=imgsz,
+        )
+    )
+    calib_trainer.setup_model()
+    calib_loader = calib_trainer.get_dataloader(
+        calib_trainer.data["train"],
+        batch_size=calib_batch,
+        rank=-1,
+        mode="train",
+    )
+
     def forward_loop(model):
         """Forward calibration data through model for activation range collection."""
         for i, batch_data in enumerate(calib_loader):
@@ -261,18 +307,22 @@ def sparse_quantize_aware_finetune(
         f"Quantizing sparsified model with {qat_mode} mode (calibrator: {calibrator}, "
         f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)..."
     )
-    mtq.quantize(sat_trainer.model, qat_config, forward_loop)
+    mtq.quantize(qat_model, qat_config, forward_loop)
 
     if calibrator == "histogram":
         print("Recalibrating activations with histogram/entropy...")
         _histogram_recalibrate(sat_trainer.model, forward_loop)
 
+    # Free calibration trainer (dataloader workers, model copy).
+    del calib_trainer
+    gc.collect()
+
     if exclude_quant:
         print("Resolving quantization exclusion patterns:")
-        _apply_quantizer_exclusions(sat_trainer.model, exclude_quant)
+        _apply_quantizer_exclusions(qat_model, exclude_quant)
 
     print("Quantization summary:")
-    mtq.print_quant_summary(sat_trainer.model)
+    mtq.print_quant_summary(qat_model)
 
     # ── 5. QAT fine-tuning ─────────────────────────────────────────
     # Both sparsity masks and FakeQuantize are active simultaneously.
@@ -298,7 +348,7 @@ def sparse_quantize_aware_finetune(
         qat_overrides["freeze"] = freeze
     qat_trainer = SparseQATTrainer(overrides=qat_overrides)
     qat_trainer.phase = "qat"
-    qat_trainer.model = sat_trainer.model
+    qat_trainer.model = qat_model
     qat_trainer.train()
 
     print("Post-QAT:")
@@ -309,10 +359,9 @@ def sparse_quantize_aware_finetune(
     # symbolic() converts FakeQuantize -> Q/DQ and sparsity masks ensure
     # zero weights are preserved in the traced graph.
     stem = Path(model_name).stem
-    onnx_path = ONNX_RAW_DIR / f"{stem}_sparse_qat_{qat_mode}.onnx"
-    print(f"Exporting ONNX with QDQ nodes + sparse weights: {onnx_path}")
+    onnx_path = ONNX_OPTIMIZED_DIR / f"{stem}_sparse_qat_{super(qat_mode)}.onnx"
     _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
-    print(f"Saved sparse QAT ONNX to: {onnx_path}")
+    print(f"Exporting ONNX with QDQ nodes + sparse weights: {onnx_path}")
     print_trtexec_hint(onnx_path, sparse=True)
 
     return onnx_path
