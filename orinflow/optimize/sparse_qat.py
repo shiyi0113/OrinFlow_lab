@@ -101,9 +101,9 @@ def sparse_quantize_aware_finetune(
     sat_epochs: int = 10,
     qat_epochs: int = 10,
     batch: int = 16,
-    sat_lr: float = 1e-4,
-    qat_lr: float = 1e-4,
-    optimizer: str = "SGD",
+    sat_lr: float = 1e-3,
+    qat_lr: float = 1e-3,
+    optimizer: str = "AdamW",
     workers: int = 8,
     calib_batch: int = 4,
     calib_images: int = 512,
@@ -112,6 +112,9 @@ def sparse_quantize_aware_finetune(
     calibrator: str = "max",
     imgsz: int = 640,
     device: int = 0,
+    warmup_epochs: float = 1.0,
+    close_mosaic: int = 0,
+    freeze: int | None = None,
 ) -> Path:
     """Apply 2:4 sparsity then QAT, producing ONNX with QDQ nodes + sparse weights.
 
@@ -147,6 +150,10 @@ def sparse_quantize_aware_finetune(
             outlier-sensitive). Weight quantizers always use "max".
         imgsz: Input image size.
         device: CUDA device ID.
+        warmup_epochs: Learning rate warmup epochs for both SAT and QAT phases.
+        close_mosaic: Disable mosaic augmentation for the last N epochs.
+            Default 0 disables mosaic entirely.
+        freeze: Freeze the first N layers of the backbone.
 
     Returns:
         Path to exported ONNX file with QDQ nodes and sparse weights.
@@ -172,14 +179,19 @@ def sparse_quantize_aware_finetune(
     model_yolo.eval()
 
     # ── Build calibration dataloader (shared for sparsity + quantization) ──
-    tmp_trainer = SparseQATTrainer(overrides=dict(
-        model=str(model_path),
-        data=str(data_path),
-        imgsz=imgsz,
-    ))
+    tmp_trainer = SparseQATTrainer(
+        overrides=dict(
+            model=str(model_path),
+            data=str(data_path),
+            imgsz=imgsz,
+        )
+    )
     tmp_trainer.setup_model()
     calib_loader = tmp_trainer.get_dataloader(
-        tmp_trainer.data["train"], batch_size=calib_batch, rank=-1, mode="train",
+        tmp_trainer.data["train"],
+        batch_size=calib_batch,
+        rank=-1,
+        mode="train",
     )
     max_iters = max(1, calib_images // calib_batch)
 
@@ -212,7 +224,7 @@ def sparse_quantize_aware_finetune(
 
     # ── 3. SAT fine-tuning ─────────────────────────────────────────
     print("Starting Sparsity-Aware Training (SAT)...")
-    sat_trainer = SparseQATTrainer(overrides=dict(
+    sat_overrides = dict(
         model=str(model_path),
         data=str(data_path),
         imgsz=imgsz,
@@ -222,7 +234,12 @@ def sparse_quantize_aware_finetune(
         lr0=sat_lr,
         device=device,
         workers=workers,
-    ))
+        warmup_epochs=warmup_epochs,
+        close_mosaic=close_mosaic,
+    )
+    if freeze is not None:
+        sat_overrides["freeze"] = freeze
+    sat_trainer = SparseQATTrainer(overrides=sat_overrides)
     sat_trainer.model = model_yolo.model
     sat_trainer.train()
 
@@ -263,7 +280,7 @@ def sparse_quantize_aware_finetune(
     # simulates quantization. Gradients flow through STE for quantization
     # and masked weights stay zero.
     print("Starting Quantization-Aware Training (QAT) on sparsified model...")
-    qat_trainer = SparseQATTrainer(overrides=dict(
+    qat_overrides = dict(
         model=str(model_path),
         data=str(data_path),
         imgsz=imgsz,
@@ -274,7 +291,12 @@ def sparse_quantize_aware_finetune(
         device=device,
         workers=workers,
         amp=False,
-    ))
+        warmup_epochs=warmup_epochs,
+        close_mosaic=close_mosaic,
+    )
+    if freeze is not None:
+        qat_overrides["freeze"] = freeze
+    qat_trainer = SparseQATTrainer(overrides=qat_overrides)
     qat_trainer.phase = "qat"
     qat_trainer.model = sat_trainer.model
     qat_trainer.train()

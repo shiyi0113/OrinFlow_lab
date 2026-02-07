@@ -26,9 +26,8 @@ import copy
 import fnmatch
 from pathlib import Path
 
-import torch
-
 import modelopt.torch.quantization as mtq
+import torch
 
 from orinflow.config import DATA_DIR, DEFAULT_OPSET, ONNX_OPTIMIZED_DIR, SOURCE_MODELS_DIR, print_trtexec_hint
 
@@ -264,8 +263,8 @@ def quantize_aware_finetune(
     mode: str = "int8",
     epochs: int = 10,
     batch: int = 16,
-    lr: float = 1e-4,
-    optimizer: str = "SGD",
+    lr: float = 1e-3,
+    optimizer: str = "AdamW",
     workers: int = 8,
     calib_batch: int = 4,
     calib_images: int = 512,
@@ -273,6 +272,9 @@ def quantize_aware_finetune(
     calibrator: str = "max",
     imgsz: int = 640,
     device: int = 0,
+    warmup_epochs: float = 1.0,
+    close_mosaic: int = 0,
+    freeze: int | None = None,
 ) -> Path:
     """Apply quantization and fine-tune with QAT.
 
@@ -305,6 +307,13 @@ def quantize_aware_finetune(
             outlier-sensitive). Weight quantizers always use "max".
         imgsz: Input image size.
         device: CUDA device ID.
+        warmup_epochs: Learning rate warmup epochs. QAT needs shorter warmup
+            than full training since it fine-tunes a pretrained model.
+        close_mosaic: Disable mosaic augmentation for the last N epochs.
+            Default 0 disables mosaic entirely, which is typical for QAT
+            since clean data helps the model learn quantization compensation.
+        freeze: Freeze the first N layers of the backbone. Useful for large
+            models with limited QAT epochs to reduce trainable parameters.
 
     Returns:
         Path to exported ONNX file with QDQ nodes.
@@ -330,14 +339,19 @@ def quantize_aware_finetune(
     # ── 2. Quantize + Calibrate ────────────────────────────────────
     # Build calibration dataloader via a temporary trainer.
     # setup_model() is required because build_dataset accesses self.model.stride.
-    tmp_trainer = QATDetectionTrainer(overrides=dict(
-        model=str(model_path),
-        data=str(data_path),
-        imgsz=imgsz,
-    ))
+    tmp_trainer = QATDetectionTrainer(
+        overrides=dict(
+            model=str(model_path),
+            data=str(data_path),
+            imgsz=imgsz,
+        )
+    )
     tmp_trainer.setup_model()
     calib_loader = tmp_trainer.get_dataloader(
-        tmp_trainer.data["train"], batch_size=calib_batch, rank=-1, mode="train",
+        tmp_trainer.data["train"],
+        batch_size=calib_batch,
+        rank=-1,
+        mode="train",
     )
 
     max_iters = max(1, calib_images // calib_batch)
@@ -350,8 +364,10 @@ def quantize_aware_finetune(
             model(batch_data["img"].to(cuda_device).float() / 255.0)
 
     qat_config = _resolve_qat_config(mode)
-    print(f"Quantizing model with {mode} mode (calibrator: {calibrator}, "
-          f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)...")
+    print(
+        f"Quantizing model with {mode} mode (calibrator: {calibrator}, "
+        f"calibration: {max_iters} batches x {calib_batch} = ~{max_iters * calib_batch} images)..."
+    )
     mtq.quantize(model_yolo.model, qat_config, forward_loop)
 
     # Recalibrate activation quantizers with histogram/entropy if requested.
@@ -376,7 +392,7 @@ def quantize_aware_finetune(
     # preserving the TensorQuantizer wrappers.
     # FakeQuantize uses STE for backward pass — no manual hooks needed.
     print("Starting Quantization-Aware Training (QAT)...")
-    qat_trainer = QATDetectionTrainer(overrides=dict(
+    train_overrides = dict(
         model=str(model_path),
         data=str(data_path),
         imgsz=imgsz,
@@ -387,7 +403,12 @@ def quantize_aware_finetune(
         device=device,
         workers=workers,
         amp=False,
-    ))
+        warmup_epochs=warmup_epochs,
+        close_mosaic=close_mosaic,
+    )
+    if freeze is not None:
+        train_overrides["freeze"] = freeze
+    qat_trainer = QATDetectionTrainer(overrides=train_overrides)
     qat_trainer.model = model_yolo.model
     qat_trainer.train()
 
@@ -400,7 +421,5 @@ def quantize_aware_finetune(
     onnx_path = ONNX_OPTIMIZED_DIR / f"{stem}_{mode.upper()}_qat.onnx"
     print(f"Exporting ONNX with QDQ nodes: {onnx_path}")
     _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
-    print(f"Saved QAT ONNX to: {onnx_path}")
     print_trtexec_hint(onnx_path)
-
     return onnx_path

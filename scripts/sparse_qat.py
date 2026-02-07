@@ -21,9 +21,9 @@ def main():
     parser.add_argument("--sat-epochs", type=int, default=10, help="SAT fine-tuning epochs")
     parser.add_argument("--qat-epochs", type=int, default=10, help="QAT fine-tuning epochs")
     parser.add_argument("--batch", type=int, default=16, help="Training batch size")
-    parser.add_argument("--sat-lr", type=float, default=1e-4, help="SAT learning rate")
-    parser.add_argument("--qat-lr", type=float, default=1e-4, help="QAT learning rate")
-    parser.add_argument("--optimizer", type=str, default="SGD", help="Optimizer (AdamW, SGD, Adam, RAdam, etc.)")
+    parser.add_argument("--sat-lr", type=float, default=1e-3, help="SAT learning rate (default: 1e-3)")
+    parser.add_argument("--qat-lr", type=float, default=1e-3, help="QAT learning rate (default: 1e-3)")
+    parser.add_argument("--optimizer", type=str, default="AdamW", help="Optimizer (default: AdamW; also SGD, Adam, RAdam)")
     parser.add_argument("--workers", type=int, default=8, help="Dataloader workers")
     parser.add_argument("--calib-batch", type=int, default=4, help="Calibration batch size")
     parser.add_argument("--calib-images", type=int, default=512, help="Max calibration images (default: 512)")
@@ -38,6 +38,15 @@ def main():
     )
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--device", type=int, default=0, help="CUDA device ID")
+    parser.add_argument("--warmup-epochs", type=float, default=1.0,
+        help="LR warmup epochs (default: 1.0; fine-tuning needs shorter warmup)",
+    )
+    parser.add_argument("--close-mosaic", type=int, default=0,
+        help="Disable mosaic for last N epochs (default: 0, disabled entirely for fine-tuning)",
+    )
+    parser.add_argument("--freeze", type=int, default=None,
+        help="Freeze first N backbone layers (e.g. 10). Reduces trainable params for large models",
+    )
     args = parser.parse_args()
 
     sparse_quantize_aware_finetune(
@@ -59,6 +68,9 @@ def main():
         calibrator=args.calibrator,
         imgsz=args.imgsz,
         device=args.device,
+        warmup_epochs=args.warmup_epochs,
+        close_mosaic=args.close_mosaic,
+        freeze=args.freeze,
     )
 
 
