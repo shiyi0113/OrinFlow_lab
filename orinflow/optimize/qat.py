@@ -43,9 +43,11 @@ QAT_MODE_MAP: dict[str, dict] = {
 }
 
 # Supported calibrator choices for activation (input) quantizers.
-# "histogram" uses HistogramCalibrator with entropy-based amax (recommended for CNN/YOLO).
-# "max" uses MaxCalibrator which tracks the global absolute max (fast but outlier-sensitive).
-# Weight quantizers always use "max" since weight distributions are typically well-behaved.
+# "max" uses MaxCalibrator which tracks the global absolute max (recommended for CNN/YOLO
+#   since BatchNorm produces well-behaved activation distributions without extreme outliers).
+# "histogram" uses HistogramCalibrator with entropy-based amax (designed for models with
+#   outlier-heavy activations like LLMs; tends to clip too aggressively for BN-normalized CNNs).
+# Weight quantizers always use "max" regardless of this setting.
 CALIBRATOR_CHOICES = ("histogram", "max")
 
 
@@ -268,7 +270,7 @@ def quantize_aware_finetune(
     calib_batch: int = 4,
     calib_images: int = 512,
     exclude: list[str] | None = None,
-    calibrator: str = "histogram",
+    calibrator: str = "max",
     imgsz: int = 640,
     device: int = 0,
 ) -> Path:
@@ -398,6 +400,7 @@ def quantize_aware_finetune(
     onnx_path = ONNX_OPTIMIZED_DIR / f"{stem}_{mode.upper()}_qat.onnx"
     print(f"Exporting ONNX with QDQ nodes: {onnx_path}")
     _export_qat_onnx(qat_trainer.model, onnx_path, imgsz, cuda_device)
+    print(f"Saved QAT ONNX to: {onnx_path}")
     print_trtexec_hint(onnx_path)
 
     return onnx_path

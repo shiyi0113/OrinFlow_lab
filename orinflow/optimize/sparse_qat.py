@@ -109,7 +109,7 @@ def sparse_quantize_aware_finetune(
     calib_images: int = 512,
     exclude_sparse: list[str] | None = None,
     exclude_quant: list[str] | None = None,
-    calibrator: str = "histogram",
+    calibrator: str = "max",
     imgsz: int = 640,
     device: int = 0,
 ) -> Path:
