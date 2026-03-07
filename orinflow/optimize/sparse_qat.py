@@ -110,7 +110,7 @@ def _make_sparse_qat_trainer_cls():
 def sparse_quantize_aware_finetune(
     model_name: str,
     data_yaml: str,
-    sparsity_mode: str = "sparsegpt",
+    sparsity_mode: str = "sparse_magnitude",
     qat_mode: str = "int8",
     sat_epochs: int = 10,
     qat_epochs: int = 10,
